@@ -1,0 +1,23 @@
+export const IPC_CHANNELS = {
+  COMPARE_FOLDER: "compare:folder",
+  COMPARE_FILE: "compare:file",
+  COMPARE_GIT: "compare:git",
+  SESSION_SAVE_ALL: "session:save-all",
+  SESSION_LOAD_ALL: "session:load-all",
+  FILE_READ: "file:read",
+  FILE_WRITE: "file:write",
+  FILE_DETECT_BINARY: "file:detect-binary",
+  FILE_READ_HEX: "file:read-hex",
+  PATH_STAT: "path:stat",
+  FILE_COPY: "file:copy",
+  FILE_STAT: "file:stat",
+  DIALOG_SELECT_FOLDER: "dialog:select-folder",
+  DIALOG_SELECT_FILE: "dialog:select-file",
+  GIT_LIST_REFS: "git:list-refs",
+  GIT_EXTRACT_FILE: "git:extract-file",
+  GIT_MERGE_BASE: "git:merge-base",
+  GIT_IS_REPO: "git:is-repo",
+  DROP_FILES: "drop:files",
+} as const;
+
+export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -1,0 +1,183 @@
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d2d;
+  --bg-hover: #383838;
+  --bg-active: #094771;
+  --text-primary: #cccccc;
+  --text-secondary: #969696;
+  --text-muted: #6e6e6e;
+  --border-color: #3c3c3c;
+  --accent: #007acc;
+  --accent-hover: #1a8ad4;
+
+  /* Compare state colors */
+  --state-equal: #cccccc;
+  --state-modified: #e06c75;
+  --state-only-left: #c678dd;
+  --state-only-right: #c678dd;
+  --state-binary: #61afef;
+  --state-whitespace: #6e6e6e;
+  --state-error: #e5a84b;
+
+  /* Diff colors */
+  --diff-added-bg: rgba(35, 134, 54, 0.2);
+  --diff-removed-bg: rgba(218, 54, 51, 0.2);
+  --diff-modified-bg: rgba(218, 54, 51, 0.15);
+  --diff-added-line: rgba(35, 134, 54, 0.35);
+  --diff-removed-line: rgba(218, 54, 51, 0.35);
+  --diff-modified-line: rgba(200, 120, 30, 0.45);
+  --diff-char-del: #a01515;
+  --diff-char-ins: #1a7a1a;
+
+  --toolbar-height: 36px;
+  --tab-height: 32px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --font-size-sm: 11px;
+  --font-size-md: 13px;
+  --font-size-lg: 14px;
+  --font-mono: "SF Mono", "Menlo", "Consolas", monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Drag region for macOS titlebar */
+.drag-region {
+  -webkit-app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Tooltip base */
+[data-tooltip] {
+  position: relative;
+}
+[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e1e;
+  color: #ccc;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  white-space: nowrap;
+  z-index: 1000;
+  border: 1px solid var(--border-color);
+  pointer-events: none;
+}
+
+/* Icon button */
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+  flex-shrink: 0;
+}
+.icon-btn:hover {
+  background: var(--bg-hover);
+}
+.icon-btn:active {
+  background: var(--bg-active);
+}
+.icon-btn.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* Toggle-on state for toolbar icon buttons (e.g., show/hide dotfiles) */
+.icon-btn--active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 700;
+}
+.icon-btn--active:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* Separator in toolbar */
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border-color);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+/* Input styling */
+input[type="text"] {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  padding: 4px 8px;
+  border-radius: 4px;
+  outline: none;
+  font-family: var(--font-sans);
+}
+input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+select {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  padding: 4px 8px;
+  border-radius: 4px;
+  outline: none;
+}
+
+button {
+  font-family: var(--font-sans);
+}

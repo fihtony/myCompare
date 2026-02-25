@@ -1,0 +1,211 @@
+.folder-compare {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.fc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  height: var(--toolbar-height);
+}
+
+.fc-exclude-input {
+  width: 200px;
+  height: 24px;
+  font-size: var(--font-size-sm);
+}
+
+.fc-stats {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.fc-path-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.fc-path-group {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.fc-path-input {
+  flex: 1;
+  height: 26px;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+
+.fc-content {
+  flex: 1;
+  overflow: auto;
+}
+
+.fc-loading,
+.fc-error,
+.fc-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+  font-size: var(--font-size-md);
+}
+
+.fc-error {
+  color: var(--state-error);
+}
+
+.fc-result-table {
+  display: flex;
+  flex-direction: column;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+
+.fc-header-row {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  color: var(--text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.fc-items {
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-row {
+  display: flex;
+  align-items: center;
+  padding: 1px 8px;
+  cursor: pointer;
+  min-height: 22px;
+  gap: 0;
+}
+.fc-row:hover {
+  background: var(--bg-hover);
+}
+
+/* State indicator — narrow bar (not a circle) */
+.fc-col-state {
+  width: 4px;
+  height: 14px;
+  border-radius: 2px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.fc-header-row .fc-col-state {
+  width: 4px;
+  background: transparent;
+}
+
+.fc-col-toggle {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  margin-right: 2px;
+  text-align: center;
+}
+
+/* Name cell wrapper: takes available space in the left/right half,
+   indent via padding-left (set inline). Clips overflowing names. */
+.fc-name-cell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  gap: 0;
+}
+
+.fc-col-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-col-date {
+  width: 88px;
+  text-align: right;
+  color: var(--text-secondary);
+  font-size: 11px;
+  flex-shrink: 0;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.fc-col-size {
+  width: 62px;
+  text-align: right;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  padding: 0 6px;
+}
+
+.fc-col-cmp {
+  width: 30px;
+  text-align: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* Directory rows: italic name */
+.fc-row-dir {
+  font-style: italic;
+}
+
+/* Hidden-file rows: dimmed filename */
+.fc-name-hidden {
+  color: var(--fc-hidden-color, #6b7280);
+  font-style: italic;
+}
+
+/* Orphan placeholder: striped grey block shown on the empty side */
+.fc-orphan-side {
+  flex: 1;
+  height: 14px;
+  border-radius: 2px;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 3px,
+    rgba(120, 120, 140, 0.25) 3px,
+    rgba(120, 120, 140, 0.25) 6px
+  );
+  background-color: rgba(100, 100, 120, 0.1);
+}
+
+.fc-copy-status {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  margin-left: 8px;
+  white-space: nowrap;
+}

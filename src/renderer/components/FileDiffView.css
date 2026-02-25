@@ -1,0 +1,380 @@
+.file-diff {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.fd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+  height: var(--toolbar-height);
+}
+
+.fd-stats {
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+}
+
+.fd-path-bar {
+  display: flex;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.fd-path-group {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.fd-path-input {
+  flex: 1;
+  height: 26px;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+}
+
+.fd-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.fd-loading,
+.fd-error,
+.fd-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-secondary);
+}
+
+.fd-error {
+  color: var(--state-error);
+}
+
+.fd-diff-container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.fd-thumbnail {
+  width: 12px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-tertiary);
+  border-right: 1px solid var(--border-color);
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.fd-thumb-line {
+  flex: 1;
+  min-height: 1px;
+  max-height: 2px;
+  cursor: pointer;
+}
+
+.fd-diff-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.fd-diff-table {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 20px;
+  min-width: 100%;
+}
+
+.fd-diff-row {
+  display: flex;
+  min-height: 20px;
+}
+
+.fd-diff-equal {
+  background: transparent;
+}
+
+.fd-diff-added {
+  background: var(--diff-added-bg);
+}
+
+.fd-diff-removed {
+  background: var(--diff-removed-bg);
+}
+
+.fd-diff-modified {
+  background: transparent;
+}
+
+/* Whitespace-only differences: subtle blue tint */
+.fd-diff-whitespace {
+  background: transparent;
+}
+.fd-diff-whitespace .fd-line-modified-left {
+  background: var(--diff-whitespace-bg-left, rgba(70, 120, 200, 0.18));
+}
+.fd-diff-whitespace .fd-line-modified-right {
+  background: var(--diff-whitespace-bg-right, rgba(70, 120, 200, 0.18));
+}
+
+.fd-diff-active {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.fd-line-no {
+  width: 48px;
+  text-align: right;
+  padding-right: 8px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.fd-line-left {
+  border-right: 1px solid var(--border-color);
+}
+
+.fd-gutter {
+  width: 4px;
+  background: var(--border-color);
+  flex-shrink: 0;
+}
+
+/* Copy column: holds per-line and group copy buttons */
+.fd-copy-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  width: 18px;
+  flex-shrink: 0;
+  gap: 1px;
+}
+
+/* Per-line copy buttons */
+.fd-line-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 18px;
+  flex-shrink: 0;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  opacity: 0;
+  padding: 0;
+  line-height: 1;
+  border-radius: 2px;
+  transition: opacity 0.1s;
+}
+.fd-diff-row:hover .fd-line-copy {
+  opacity: 0.75;
+}
+.fd-line-copy:hover {
+  opacity: 1 !important;
+}
+
+/* Section/group copy buttons — larger, more prominent */
+.fd-group-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  flex-shrink: 0;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  cursor: pointer;
+  opacity: 0;
+  padding: 0;
+  line-height: 1;
+  border-radius: 2px;
+  transition: opacity 0.1s;
+}
+.fd-diff-row:hover .fd-group-copy {
+  opacity: 0.9;
+}
+.fd-group-copy:hover {
+  opacity: 1 !important;
+}
+
+/* Binary badge */
+.fd-binary-badge {
+  font-size: var(--font-size-sm);
+  background: var(--state-binary);
+  color: #fff;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 8px;
+}
+
+/* Modified line: left half gets removed background, right half gets added background */
+.fd-diff-modified .fd-line-modified-left {
+  background: var(--diff-removed-bg);
+}
+.fd-diff-modified .fd-line-modified-right {
+  background: var(--diff-added-bg);
+}
+
+/* Character-level diff highlights within modified lines */
+mark.fd-char-del {
+  background: var(--diff-char-del, #a01515);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+mark.fd-char-ins {
+  background: var(--diff-char-ins, #1a7a1a);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* Whitespace-only diff highlight (softer blue) */
+mark.fd-char-ws {
+  background: var(--diff-char-ws, #2563a8);
+  color: #fff;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* Visible whitespace characters rendered inside whitespace diff cells */
+.fd-ws-dot {
+  opacity: 0.55;
+  font-size: 0.85em;
+}
+
+/* Inline-editable line text cells */
+.fd-line-text {
+  flex: 1;
+  padding: 0 4px;
+  white-space: pre;
+  overflow: hidden;
+  outline: none;
+  cursor: text;
+}
+.fd-line-text:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  overflow: auto;
+}
+
+/* Dirty indicator — small red asterisk after the path input */
+.fd-dirty-indicator {
+  color: #e53e3e;
+  font-size: 13px;
+  font-weight: bold;
+  flex-shrink: 0;
+  line-height: 26px;
+  padding: 0 1px;
+  user-select: none;
+}
+
+/* Save button that appears inline in path bar — always visible, greyed when no changes */
+.fd-save-btn {
+  flex-shrink: 0;
+  opacity: 0.35;
+  cursor: default;
+}
+.fd-save-btn.fd-save-active,
+.fd-save-btn:not(:disabled) {
+  opacity: 1;
+  cursor: pointer;
+}
+
+/* Edit mode: side-by-side text editors */
+.fd-edit-panes {
+  display: flex;
+  flex: 1;
+  gap: 0;
+  min-height: 0;
+  border-top: 1px solid var(--border-color);
+}
+
+.fd-edit-pane {
+  flex: 1;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 8px;
+  font-family: var(--font-mono, "Menlo", "Consolas", monospace);
+  font-size: var(--font-size-sm, 12px);
+  background: var(--bg-secondary, #1e1e1e);
+  color: var(--text-primary, #d4d4d4);
+  tab-size: 2;
+  overflow: auto;
+  white-space: pre;
+}
+
+.fd-edit-pane + .fd-edit-pane {
+  border-left: 1px solid var(--border-color);
+}
+
+/* ─── Footbar ─────────────────────────────────────────── */
+.fd-footbar {
+  display: flex;
+  align-items: center;
+  height: 20px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-secondary);
+  padding: 0 8px;
+  gap: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.fd-foot-side {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fd-foot-right {
+  justify-content: flex-end;
+}
+.fd-foot-center {
+  flex-shrink: 0;
+  color: var(--accent);
+  padding: 0 12px;
+  font-weight: 500;
+}
+.fd-foot-sep {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+.fd-foot-muted {
+  color: var(--text-muted);
+}
+.fd-foot-badge {
+  font-size: 9px;
+  font-weight: bold;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--state-error, #c00);
+  color: #fff;
+  text-transform: uppercase;
+}
