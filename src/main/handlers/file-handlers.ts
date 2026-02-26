@@ -1,6 +1,7 @@
 import { ipcMain } from "electron";
 import * as fs from "fs";
 import * as path from "path";
+import * as readline from "readline";
 import { IPC_CHANNELS } from "../../shared/ipc-channels";
 import { readFileAsText, writeFileAsText, detectFileBinary, readFileHex, getPathStat, getFileStat } from "../core/file-utils";
 import { logFile, errorFile, warnFile } from "../file-logger";
@@ -14,6 +15,46 @@ export function registerFileHandlers(): void {
       errorFile("Handler", `FILE_READ failed: ${filePath}`, err);
       throw new Error(`Failed to read file: ${err.message}`);
     }
+  });
+
+  /**
+   * Read up to `maxLines` lines from a file without loading the entire file into memory.
+   * Uses a readline stream so only the requested portion is ever in the heap.
+   */
+  ipcMain.handle(IPC_CHANNELS.FILE_READ_LINES, async (_event, filePath: string, maxLines: number) => {
+    logFile("Handler", `FILE_READ_LINES IPC: ${filePath} (max ${maxLines} lines)`);
+    return new Promise<{ content: string; truncated: boolean; lineCount: number }>((resolve, reject) => {
+      const lines: string[] = [];
+      let truncated = false;
+      const stream = fs.createReadStream(filePath, { encoding: "utf8" });
+      const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+      rl.on("line", (line: string) => {
+        if (lines.length >= maxLines) {
+          if (!truncated) {
+            truncated = true;
+            rl.close();
+            stream.destroy();
+          }
+          return;
+        }
+        lines.push(line);
+      });
+
+      rl.on("close", () => {
+        logFile("Handler", `FILE_READ_LINES done: ${lines.length} lines (truncated=${truncated})`);
+        resolve({ content: lines.join("\n"), truncated, lineCount: lines.length });
+      });
+
+      rl.on("error", (err: Error) => {
+        errorFile("Handler", `FILE_READ_LINES failed: ${filePath}`, err);
+        reject(err);
+      });
+      stream.on("error", (err: Error) => {
+        errorFile("Handler", `FILE_READ_LINES stream error: ${filePath}`, err);
+        reject(err);
+      });
+    });
   });
 
   ipcMain.handle(IPC_CHANNELS.FILE_WRITE, async (_event, filePath: string, content: string) => {

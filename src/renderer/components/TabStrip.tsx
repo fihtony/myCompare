@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { useSessionStore } from "../store/session-store";
+import { _dirtyFileSessions } from "./FileDiffView";
 import { log } from "../../shared/logger";
 import "./TabStrip.css";
 
@@ -57,6 +58,10 @@ export default function TabStrip() {
               className="tab-close"
               onClick={(e) => {
                 e.stopPropagation();
+                if (_dirtyFileSessions.has(s.id)) {
+                  const ok = window.confirm("This tab has unsaved changes. Close without saving?");
+                  if (!ok) return;
+                }
                 closeSession(s.id);
               }}
               title="Close tab"

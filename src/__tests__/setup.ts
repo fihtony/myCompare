@@ -25,6 +25,7 @@ const mockElectronAPI = {
   gitMergeBase: vi.fn(),
   gitIsRepo: vi.fn(),
   onDropFiles: vi.fn(),
+  getPathForFile: vi.fn().mockReturnValue(""),
 };
 
 export { mockElectronAPI };

@@ -18,6 +18,8 @@ export const IPC_CHANNELS = {
   GIT_MERGE_BASE: "git:merge-base",
   GIT_IS_REPO: "git:is-repo",
   DROP_FILES: "drop:files",
+  FILE_READ_LINES: "file:read-lines",
+  DIALOG_SAVE_FILE: "dialog:save-file",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];

@@ -147,6 +147,7 @@ export interface ElectronAPI {
   sessionSaveAll: (state: PersistedState) => Promise<void>;
   sessionLoadAll: () => Promise<PersistedState | null>;
   fileRead: (filePath: string) => Promise<string>;
+  fileReadLines: (filePath: string, maxLines: number) => Promise<{ content: string; truncated: boolean; lineCount: number }>;
   fileWrite: (filePath: string, content: string) => Promise<void>;
   fileCopy: (src: string, dst: string) => Promise<void>;
   fileDetectBinary: (filePath: string) => Promise<boolean>;
@@ -155,11 +156,13 @@ export interface ElectronAPI {
   fileStat: (filePath: string) => Promise<FileStatInfo>;
   dialogSelectFolder: () => Promise<string | null>;
   dialogSelectFile: () => Promise<string | null>;
+  dialogSaveFile: (defaultPath: string) => Promise<string | null>;
   gitListRefs: (repoPath: string) => Promise<GitRef[]>;
   gitExtractFile: (repoPath: string, ref: string, filePath: string) => Promise<string>;
   gitMergeBase: (repoPath: string, ref1: string, ref2: string) => Promise<string>;
   gitIsRepo: (dirPath: string) => Promise<boolean>;
   onDropFiles: (callback: (paths: string[]) => void) => void;
+  getPathForFile: (file: File) => string;
 }
 
 declare global {

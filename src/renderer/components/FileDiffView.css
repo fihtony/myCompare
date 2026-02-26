@@ -65,6 +65,15 @@
   color: var(--state-error);
 }
 
+.fd-large-file-banner {
+  padding: 4px 12px;
+  background: color-mix(in srgb, #b8860b 15%, var(--bg-primary));
+  color: #f0c040;
+  font-size: 11px;
+  border-bottom: 1px solid #665500;
+  flex-shrink: 0;
+}
+
 .fd-diff-container {
   display: flex;
   flex: 1;
@@ -98,6 +107,12 @@
   font-size: var(--font-size-sm);
   line-height: 20px;
   min-width: 100%;
+  user-select: none;
+}
+
+/* Re-enable text selection inside editable cells */
+.fd-diff-table [contenteditable] {
+  user-select: text;
 }
 
 .fd-diff-row {
@@ -107,6 +122,13 @@
 
 .fd-diff-equal {
   background: transparent;
+}
+
+/* In orphan mode (one-sided file), keep the row color on the content side but
+   override only the BLANK cell's background to neutral white/primary. */
+.fd-orphan-mode .fd-diff-removed .fd-line-right,
+.fd-orphan-mode .fd-diff-added .fd-line-left {
+  background: var(--bg-primary) !important;
 }
 
 .fd-diff-added {
@@ -180,14 +202,11 @@
   color: #fff;
   font-size: 13px;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.65;
   padding: 0;
   line-height: 1;
   border-radius: 2px;
   transition: opacity 0.1s;
-}
-.fd-diff-row:hover .fd-line-copy {
-  opacity: 0.75;
 }
 .fd-line-copy:hover {
   opacity: 1 !important;
@@ -207,17 +226,27 @@
   font-size: 11px;
   font-weight: bold;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.75;
   padding: 0;
   line-height: 1;
   border-radius: 2px;
   transition: opacity 0.1s;
 }
-.fd-diff-row:hover .fd-group-copy {
-  opacity: 0.9;
-}
 .fd-group-copy:hover {
   opacity: 1 !important;
+}
+
+/* Block bracket: |_ visual connecting all lines of a change block */
+.fd-bracket-top {
+  border-left: 2px solid var(--accent);
+  border-top: 2px solid var(--accent);
+}
+.fd-bracket-mid {
+  border-left: 2px solid var(--accent);
+}
+.fd-bracket-bot {
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
 }
 
 /* Binary badge */
@@ -330,6 +359,29 @@ mark.fd-char-ws {
   border-left: 1px solid var(--border-color);
 }
 
+/* ─── Row selection (line-number click) ──────────────────── */
+.fd-line-no {
+  cursor: default;
+  user-select: none;
+}
+.fd-line-no-sel {
+  background: rgba(0, 120, 215, 0.35);
+  border-radius: 2px;
+  cursor: pointer !important;
+}
+.fd-row-selected {
+  background: rgba(0, 120, 215, 0.08) !important;
+}
+.fd-diff-row:not(.fd-diff-equal) .fd-line-no {
+  cursor: pointer;
+}
+.fd-sel-count {
+  font-size: var(--font-size-sm);
+  color: var(--accent);
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
 /* ─── Footbar ─────────────────────────────────────────── */
 .fd-footbar {
   display: flex;
@@ -361,6 +413,10 @@ mark.fd-char-ws {
   color: var(--accent);
   padding: 0 12px;
   font-weight: 500;
+}
+.fd-foot-identical {
+  color: #1a7a2a;
+  font-weight: 600;
 }
 .fd-foot-sep {
   color: var(--text-muted);

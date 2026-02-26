@@ -72,7 +72,7 @@
 
 .gc-content {
   flex: 1;
-  overflow: hidden;
+  overflow: auto;
   display: flex;
   flex-direction: column;
 }
@@ -91,24 +91,17 @@
   color: var(--state-error);
 }
 
-/* Split pane: file list (top) + inline diff (bottom) */
-.gc-split-pane {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  overflow: hidden;
-}
-
+/* ─── Tree result table ─────────────────────────────────── */
 .gc-result-table {
   display: flex;
   flex-direction: column;
-  flex: 0 0 auto;
-  max-height: 50%;
-  overflow: hidden;
+  flex: 1;
+  min-height: 0;
 }
 
 .gc-header-row {
   display: flex;
+  align-items: center;
   padding: 4px 8px;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-color);
@@ -116,6 +109,9 @@
   color: var(--text-secondary);
   font-weight: 600;
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .gc-items {
@@ -123,26 +119,53 @@
   overflow-y: auto;
 }
 
-.gc-row {
+/* Each row in the tree */
+.gc-tree-row {
   display: flex;
-  padding: 2px 8px;
+  align-items: center;
+  padding: 1px 8px;
   cursor: pointer;
+  min-height: 22px;
   font-size: var(--font-size-sm);
   border-bottom: 1px solid transparent;
 }
 
-.gc-row:hover {
+.gc-tree-row:hover {
   background: var(--bg-hover);
 }
 
-.gc-col-state {
-  width: 4px;
-  flex-shrink: 0;
-  border-radius: 2px;
-  margin-right: 6px;
+.gc-row-dir {
+  font-style: italic;
+  color: var(--text-secondary);
 }
 
-.gc-col-path {
+.gc-row-opening {
+  opacity: 0.6;
+}
+
+/* Left/right name cell, each takes 50% */
+.gc-name-cell {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* Toggle triangle (▶/▼) */
+.gc-col-toggle {
+  width: 14px;
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  margin-right: 2px;
+  text-align: center;
+}
+
+/* File/folder name */
+.gc-col-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -150,127 +173,39 @@
   font-family: var(--font-mono);
 }
 
-.gc-col-status {
-  width: 24px;
+/* Center comparison icon column */
+.gc-col-cmp {
+  width: 30px;
   text-align: center;
   flex-shrink: 0;
-  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 12px;
 }
 
-/* Selected file row */
-.gc-row-selected {
-  background: var(--bg-active, rgba(255, 255, 255, 0.08)) !important;
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-
-/* ─── Inline diff pane ─────────────────────────────────── */
-.gc-inline-diff {
+/* Orphan blank stripe (same pattern as FolderCompareView) */
+.gc-orphan-blank {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  border-top: 2px solid var(--border-color);
-  overflow: hidden;
+  height: 14px;
+  border-radius: 2px;
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent,
+    transparent 3px,
+    rgba(120, 120, 140, 0.22) 3px,
+    rgba(120, 120, 140, 0.22) 6px
+  );
+  background-color: rgba(100, 100, 120, 0.08);
 }
 
-.gc-inline-diff-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 8px;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-color);
-  font-size: var(--font-size-sm);
-  color: var(--text-secondary);
-  font-family: var(--font-mono);
-  flex-shrink: 0;
-}
-
-.gc-inline-hint {
-  margin-left: auto;
-  font-size: 10px;
-  opacity: 0.6;
+/* Orphan file name (italic, muted) */
+.gc-name-orphan {
   font-style: italic;
+  opacity: 0.75;
 }
 
-.gc-inline-loading {
-  padding: 16px;
-  color: var(--text-secondary);
+/* Ref filter input */
+.gc-ref-filter {
+  height: 26px;
   font-size: var(--font-size-sm);
-}
-
-.gc-inline-scroll {
-  flex: 1;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  line-height: 20px;
-}
-
-.gc-diff-row {
-  display: flex;
-  min-height: 20px;
-}
-.gc-diff-equal {
-  background: transparent;
-}
-.gc-diff-added {
-  background: var(--diff-added-bg);
-}
-.gc-diff-removed {
-  background: var(--diff-removed-bg);
-}
-.gc-diff-modified {
-  background: transparent;
-}
-.gc-diff-whitespace {
-  background: transparent;
-}
-
-.gc-diff-lineno {
-  width: 44px;
-  text-align: right;
-  padding-right: 6px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.gc-diff-cell {
-  flex: 1;
-  padding: 0 4px;
-  white-space: pre;
-  overflow: hidden;
-}
-.gc-diff-left {
-  border-right: 1px solid var(--border-color);
-}
-.gc-diff-mod-left {
-  background: var(--diff-removed-bg);
-}
-.gc-diff-mod-right {
-  background: var(--diff-added-bg);
-}
-.gc-diff-whitespace .gc-diff-mod-left,
-.gc-diff-whitespace .gc-diff-mod-right {
-  background: rgba(70, 120, 200, 0.18);
-}
-
-.gc-diff-sep {
-  width: 4px;
-  background: var(--border-color);
-  flex-shrink: 0;
-}
-
-mark.gc-char-del {
-  background: var(--diff-char-del, #a01515);
-  color: #fff;
-  border-radius: 2px;
-  padding: 0 1px;
-}
-mark.gc-char-ins {
-  background: var(--diff-char-ins, #1a7a1a);
-  color: #fff;
-  border-radius: 2px;
-  padding: 0 1px;
-}
+  min-width: 80px;
+  max-width: 120px;

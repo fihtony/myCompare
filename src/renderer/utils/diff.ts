@@ -87,22 +87,30 @@ export function computeDiff(leftLines: string[], rightLines: string[]): DiffLine
   const m = leftLines.length;
   const n = rightLines.length;
 
-  // Build LCS DP table
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  // For large files: use the fast O((m+n) log n) greedy algorithm to stay memory-safe.
+  // Int32Array((m+1)*(n+1)) for m=n=4000 ≈ 64 MB — acceptable, but beyond that we switch.
+  if (m * n > MAX_LCS_CELLS) {
+    return computeDiffLarge(leftLines, rightLines);
+  }
+
+  // Small files: full O(m×n) LCS using a flat Int32Array (much lower GC pressure
+  // than a jagged number[][] of the same size).
+  const w = n + 1; // row stride
+  const dp = new Int32Array((m + 1) * w);
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      dp[i][j] = leftLines[i - 1] === rightLines[j - 1] ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      dp[i * w + j] =
+        leftLines[i - 1] === rightLines[j - 1] ? dp[(i - 1) * w + (j - 1)] + 1 : Math.max(dp[(i - 1) * w + j], dp[i * w + (j - 1)]);
     }
   }
 
-  // Backtrack to build raw diff list (only equal/added/removed)
+  // Backtrack to build raw diff list (push then reverse — avoids O(n²) from unshift).
   const raw: DiffLine[] = [];
   let i = m;
   let j = n;
-
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && leftLines[i - 1] === rightLines[j - 1]) {
-      raw.unshift({
+      raw.push({
         type: "equal",
         leftLineNo: i,
         rightLineNo: j,
@@ -111,15 +119,104 @@ export function computeDiff(leftLines: string[], rightLines: string[]): DiffLine
       });
       i--;
       j--;
-    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-      raw.unshift({ type: "added", rightLineNo: j, leftText: "", rightText: rightLines[j - 1] });
+    } else if (j > 0 && (i === 0 || dp[i * w + (j - 1)] >= dp[(i - 1) * w + j])) {
+      raw.push({ type: "added", rightLineNo: j, leftText: "", rightText: rightLines[j - 1] });
       j--;
     } else {
-      raw.unshift({ type: "removed", leftLineNo: i, leftText: leftLines[i - 1], rightText: "" });
+      raw.push({ type: "removed", leftLineNo: i, leftText: leftLines[i - 1], rightText: "" });
       i--;
     }
   }
+  raw.reverse();
 
+  return postProcessRaw(raw);
+}
+
+/** Maximum LCS table cells before switching to the fast greedy algorithm. */
+const MAX_LCS_CELLS = 16_000_000; // Int32Array for m=n=4000 ≈ 64 MB
+
+/** Binary search: first index where arr[i] > val. Requires sorted arr. */
+function upperBound(arr: number[], val: number): number {
+  let lo = 0,
+    hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] <= val) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * Fast line diff for large files: hash-based greedy monotone matching.
+ * O((m+n) log n) time and O(m+n) space — never builds an O(m×n) DP table.
+ *
+ * Quality: finds a good diff for ordered data (CSV, logs) where lines are mostly
+ * sequential. May not always find the minimum edit distance for highly shuffled data.
+ */
+function computeDiffLarge(leftLines: string[], rightLines: string[]): DiffLine[] {
+  // Map each right-file line content → sorted list of right-side indices.
+  const rightPos = new Map<string, number[]>();
+  for (let j = 0; j < rightLines.length; j++) {
+    const t = rightLines[j];
+    let arr = rightPos.get(t);
+    if (!arr) {
+      arr = [];
+      rightPos.set(t, arr);
+    }
+    arr.push(j);
+  }
+
+  // Greedy monotone matching: for each left[i], pick the smallest j > lastJ
+  // where right[j] === left[i]. This produces a valid (non-crossing) matching.
+  const matches: [number, number][] = [];
+  let lastJ = -1;
+  for (let i = 0; i < leftLines.length; i++) {
+    const positions = rightPos.get(leftLines[i]);
+    if (positions) {
+      const pos = upperBound(positions, lastJ);
+      if (pos < positions.length) {
+        matches.push([i, positions[pos]]);
+        lastJ = positions[pos];
+      }
+    }
+  }
+
+  // Build raw diff list from matched pairs.
+  const raw: DiffLine[] = [];
+  let li = 0,
+    rj = 0;
+  for (let mi = 0; mi <= matches.length; mi++) {
+    const [matchI, matchJ] = mi < matches.length ? matches[mi] : [leftLines.length, rightLines.length];
+    while (li < matchI) {
+      raw.push({ type: "removed", leftLineNo: li + 1, leftText: leftLines[li], rightText: "" });
+      li++;
+    }
+    while (rj < matchJ) {
+      raw.push({ type: "added", rightLineNo: rj + 1, leftText: "", rightText: rightLines[rj] });
+      rj++;
+    }
+    if (mi < matches.length) {
+      raw.push({
+        type: "equal",
+        leftLineNo: li + 1,
+        rightLineNo: rj + 1,
+        leftText: leftLines[li],
+        rightText: rightLines[rj],
+      });
+      li++;
+      rj++;
+    }
+  }
+
+  return postProcessRaw(raw);
+}
+
+/**
+ * Post-process a raw equal/added/removed list:
+ * pairs adjacent removed+added rows into "modified" (with char-level spans) or "whitespace".
+ */
+function postProcessRaw(raw: DiffLine[]): DiffLine[] {
   // Post-process: pair adjacent removed+added into a "modified" or "whitespace" line with char-level spans
   const ops: DiffLine[] = [];
   for (let k = 0; k < raw.length; k++) {

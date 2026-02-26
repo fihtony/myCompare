@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type { FileSession, FileStatInfo } from "@shared/types";
+import type { FileSession, FileStatInfo, FolderSession } from "@shared/types";
 import { useSessionStore } from "../store/session-store";
 import { computeDiff, detectLanguage, computeCharDiff } from "../utils/diff";
 import type { DiffLine } from "../utils/diff";
@@ -56,8 +56,19 @@ function ThumbnailStrip({ data }: { data: string[] }) {
   );
 }
 
+/** Files larger than this are loaded with the streaming line-reader to avoid OOM. */
+const LARGE_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+/** Max lines per side when loading a large file. */
+const LARGE_FILE_MAX_LINES = 50_000;
+
+/**
+ * Module-level Set of session IDs that have unsaved changes.
+ * TabStrip reads this before closing a tab to prompt the user.
+ */
+export const _dirtyFileSessions = new Set<string>();
+
 export default function FileDiffView({ session }: Props) {
-  const { updateSession } = useSessionStore();
+  const { updateSession, sessions } = useSessionStore();
   const [leftContent, setLeftContent] = useState<string>("");
   const [rightContent, setRightContent] = useState<string>("");
   const [diffLines, setDiffLines] = useState<DiffLine[]>([]);
@@ -72,11 +83,29 @@ export default function FileDiffView({ session }: Props) {
   const [rightDirty, setRightDirty] = useState(false);
   const [leftStat, setLeftStat] = useState<FileStatInfo | null>(null);
   const [rightStat, setRightStat] = useState<FileStatInfo | null>(null);
+  /** Set when a file exceeds LARGE_FILE_BYTES and was loaded in truncated streaming mode. */
+  const [largeFileInfo, setLargeFileInfo] = useState<{
+    leftTruncated: boolean;
+    rightTruncated: boolean;
+  } | null>(null);
   /** Undo stack: each entry is a snapshot of {leftContent, rightContent} before an edit. */
   const undoStackRef = useRef<Array<{ lc: string; rc: string }>>([]);
   /** Increment to force full remount of the diff table (after file load or inline edit commit). */
   const [tableKey, setTableKey] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
+  /** Which cell is currently being typed into — prevents React from overwriting the user’s DOM text. */
+  const editingCellRef = useRef<{ idx: number; side: "left" | "right"; text: string } | null>(null);
+  /** Debounce timer for on-input live diff recompute. */
+  const inputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Rows selected via line-number clicks for bulk copy. */
+  const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
+  /** Last row index clicked (for Shift+click range selection). */
+  const lastClickedRowRef = useRef<number | null>(null);
+  /** Tracks active mouse-drag row selection (start row + whether button is held). */
+  const dragSelectRef = useRef<{ active: boolean; startIdx: number } | null>(null);
+
+  /** True when only one side has a file (orphan from folder compare). */
+  const isOrphanMode = !leftPath || !rightPath;
 
   /** Reconstruct left file content from current diffLines (excludes "added" rows which are right-only) */
   const reconstructLeft = (lines: DiffLine[]) =>
@@ -164,6 +193,7 @@ export default function FileDiffView({ session }: Props) {
     if (!lp && !rp) return;
     setLoading(true);
     setError(null);
+    setLargeFileInfo(null);
     setLeftDirty(false);
     setRightDirty(false);
     log("FileDiff", `Loading files: "${lp}" vs "${rp}"`);
@@ -180,7 +210,16 @@ export default function FileDiffView({ session }: Props) {
           return;
         }
         setIsBinary(false);
-        const content = await window.electronAPI.fileRead(existingPath);
+        // Use streaming reader for large one-sided files.
+        const stat = await window.electronAPI.fileStat(existingPath).catch(() => null);
+        let content: string;
+        if ((stat?.size ?? 0) > LARGE_FILE_BYTES) {
+          const result = await window.electronAPI.fileReadLines(existingPath, LARGE_FILE_MAX_LINES);
+          content = result.content;
+          if (result.truncated) setLargeFileInfo({ leftTruncated: !!lp, rightTruncated: !!rp });
+        } else {
+          content = await window.electronAPI.fileRead(existingPath);
+        }
         if (lp) {
           setLeftContent(content);
           setRightContent("");
@@ -203,19 +242,50 @@ export default function FileDiffView({ session }: Props) {
         return;
       }
       setIsBinary(false);
-      const [left, right] = await Promise.all([window.electronAPI.fileRead(lp), window.electronAPI.fileRead(rp)]);
+
+      // Check file sizes before loading to avoid OOM with large files.
+      const [lStatPre, rStatPre] = await Promise.all([
+        window.electronAPI.fileStat(lp).catch(() => null),
+        window.electronAPI.fileStat(rp).catch(() => null),
+      ]);
+      const lSize = lStatPre?.size ?? 0;
+      const rSize = rStatPre?.size ?? 0;
+      const isLargeFile = lSize > LARGE_FILE_BYTES || rSize > LARGE_FILE_BYTES;
+
+      let left: string;
+      let right: string;
+      if (isLargeFile) {
+        log(
+          "FileDiff",
+          `Large file detected (${(lSize / 1048576).toFixed(1)} MB / ${(rSize / 1048576).toFixed(1)} MB) — using streaming reader`,
+        );
+        const [lResult, rResult] = await Promise.all([
+          window.electronAPI.fileReadLines(lp, LARGE_FILE_MAX_LINES),
+          window.electronAPI.fileReadLines(rp, LARGE_FILE_MAX_LINES),
+        ]);
+        left = lResult.content;
+        right = rResult.content;
+        if (lResult.truncated || rResult.truncated) {
+          setLargeFileInfo({ leftTruncated: lResult.truncated, rightTruncated: rResult.truncated });
+        }
+      } else {
+        [left, right] = await Promise.all([window.electronAPI.fileRead(lp), window.electronAPI.fileRead(rp)]);
+      }
+
       setLeftContent(left);
       setRightContent(right);
       const diffResult = computeDiff(left.split("\n"), right.split("\n"));
       log(
         "FileDiff",
-        `Diff computed: ${diffResult.length} lines (${diffResult.filter((d) => d.type === "add").length} added, ${diffResult.filter((d) => d.type === "remove").length} removed)`,
+        `Diff computed: ${diffResult.length} lines (${diffResult.filter((d) => d.type === "added").length} added, ${diffResult.filter((d) => d.type === "removed").length} removed)`,
       );
       setDiffLines(diffResult);
       setTableKey((k) => k + 1);
       // Load file stats (best-effort, don't fail the whole load)
       try {
-        const [ls, rs] = await Promise.all([window.electronAPI.fileStat(lp), window.electronAPI.fileStat(rp)]);
+        const [ls, rs] = isLargeFile
+          ? [lStatPre, rStatPre]
+          : await Promise.all([window.electronAPI.fileStat(lp), window.electronAPI.fileStat(rp)]);
         setLeftStat(ls);
         setRightStat(rs);
       } catch {
@@ -232,7 +302,7 @@ export default function FileDiffView({ session }: Props) {
   }, []);
 
   useEffect(() => {
-    if (session.leftPath && session.rightPath) {
+    if (session.leftPath || session.rightPath) {
       setLeftPath(session.leftPath);
       setRightPath(session.rightPath);
       loadAndCompare(session.leftPath, session.rightPath);
@@ -254,6 +324,18 @@ export default function FileDiffView({ session }: Props) {
     return () => window.removeEventListener("keydown", handler);
   }, [handleUndo]);
 
+  // Keep the module-level dirty registry in sync so TabStrip can check before closing.
+  useEffect(() => {
+    if (leftDirty || rightDirty) {
+      _dirtyFileSessions.add(session.id);
+    } else {
+      _dirtyFileSessions.delete(session.id);
+    }
+    return () => {
+      _dirtyFileSessions.delete(session.id);
+    };
+  }, [leftDirty, rightDirty, session.id]);
+
   const handleCompare = () => {
     updateSession(session.id, { leftPath, rightPath } as any);
     updateSession(session.id, { name: leftPath.split("/").pop() || "File Compare" } as any);
@@ -272,9 +354,23 @@ export default function FileDiffView({ session }: Props) {
 
   const handleSaveLeft = async () => {
     try {
-      await window.electronAPI.fileWrite(leftPath, leftContent);
+      let savePath = leftPath;
+      if (!savePath) {
+        // Orphan file — no left path yet. Derive default from parent folder session.
+        const parentFolder = session.parentSessionId
+          ? (sessions.find((s) => s.id === session.parentSessionId && s.type === "folder") as FolderSession | undefined)
+          : undefined;
+        const defaultSavePath =
+          parentFolder && rightPath.startsWith(parentFolder.rightPath)
+            ? parentFolder.leftPath + rightPath.slice(parentFolder.rightPath.length)
+            : rightPath;
+        savePath = (await window.electronAPI.dialogSaveFile(defaultSavePath)) ?? "";
+        if (!savePath) return;
+        setLeftPath(savePath);
+      }
+      await window.electronAPI.fileWrite(savePath, leftContent);
       setLeftDirty(false);
-      log("FileDiff", `Saved left: ${leftPath}`);
+      log("FileDiff", `Saved left: ${savePath}`);
     } catch (err: any) {
       logError("FileDiff", `Save left failed: ${err.message}`, err);
     }
@@ -282,9 +378,23 @@ export default function FileDiffView({ session }: Props) {
 
   const handleSaveRight = async () => {
     try {
-      await window.electronAPI.fileWrite(rightPath, rightContent);
+      let savePath = rightPath;
+      if (!savePath) {
+        // Orphan file — no right path yet. Derive default from parent folder session.
+        const parentFolder = session.parentSessionId
+          ? (sessions.find((s) => s.id === session.parentSessionId && s.type === "folder") as FolderSession | undefined)
+          : undefined;
+        const defaultSavePath =
+          parentFolder && leftPath.startsWith(parentFolder.leftPath)
+            ? parentFolder.rightPath + leftPath.slice(parentFolder.leftPath.length)
+            : leftPath;
+        savePath = (await window.electronAPI.dialogSaveFile(defaultSavePath)) ?? "";
+        if (!savePath) return;
+        setRightPath(savePath);
+      }
+      await window.electronAPI.fileWrite(savePath, rightContent);
       setRightDirty(false);
-      log("FileDiff", `Saved right: ${rightPath}`);
+      log("FileDiff", `Saved right: ${savePath}`);
     } catch (err: any) {
       logError("FileDiff", `Save right failed: ${err.message}`, err);
     }
@@ -313,6 +423,7 @@ export default function FileDiffView({ session }: Props) {
     setDiffLines(newLines);
     setRightContent(reconstructRight(newLines));
     setRightDirty(true);
+    setSelectedRows(new Set());
   };
 
   /** Copy single diff line's right text to the left side */
@@ -322,6 +433,7 @@ export default function FileDiffView({ session }: Props) {
     setDiffLines(newLines);
     setLeftContent(reconstructLeft(newLines));
     setLeftDirty(true);
+    setSelectedRows(new Set());
   };
 
   /** Copy an entire contiguous diff group (section) to the right side. */
@@ -348,6 +460,7 @@ export default function FileDiffView({ session }: Props) {
     setRightDirty(true);
     setDiffLines(computeDiff(leftContent.split("\n"), newRc.split("\n")));
     setTableKey((k) => k + 1);
+    setSelectedRows(new Set());
   };
 
   /** Copy an entire contiguous diff group (section) to the left side. */
@@ -374,8 +487,107 @@ export default function FileDiffView({ session }: Props) {
     setLeftDirty(true);
     setDiffLines(computeDiff(newLc.split("\n"), rightContent.split("\n")));
     setTableKey((k) => k + 1);
+    setSelectedRows(new Set());
   };
 
+  /** Same as handleInlineEdit but skips tableKey reset so the active contentEditable keeps focus. */
+  const handleInlineEditSoft = useCallback(
+    (side: "left" | "right", lineIdx: number, newText: string) => {
+      const updated = diffLines.map((d, i) =>
+        i !== lineIdx ? d : side === "left" ? { ...d, leftText: newText } : { ...d, rightText: newText },
+      );
+      const newLeft = reconstructLeft(updated);
+      const newRight = reconstructRight(updated);
+      if (side === "left") {
+        setLeftContent(newLeft);
+        setLeftDirty(true);
+      } else {
+        setRightContent(newRight);
+        setRightDirty(true);
+      }
+      setDiffLines(computeDiff(newLeft.split("\n"), newRight.split("\n")));
+      // intentionally no setTableKey — keep the editing cell alive
+    },
+    [diffLines],
+  );
+
+  /** Copy arbitrary selected rows to the right side. */
+  const copySelectedToRight = useCallback(() => {
+    if (selectedRows.size === 0) return;
+    pushUndo();
+    const newRight: string[] = [];
+    for (let i = 0; i < diffLines.length; i++) {
+      const line = diffLines[i];
+      const sel = selectedRows.has(i);
+      if (line.type === "equal") {
+        newRight.push(line.rightText);
+      } else if (line.type === "added") {
+        if (!sel) newRight.push(line.rightText); // keep if not in selection
+      } else if (line.type === "removed") {
+        if (sel) newRight.push(line.leftText); // add to right
+      } else {
+        // modified / whitespace
+        newRight.push(sel ? line.leftText : line.rightText);
+      }
+    }
+    const newRc = newRight.join("\n");
+    setRightContent(newRc);
+    setRightDirty(true);
+    setDiffLines(computeDiff(leftContent.split("\n"), newRc.split("\n")));
+    setTableKey((k) => k + 1);
+    setSelectedRows(new Set());
+  }, [diffLines, leftContent, selectedRows]);
+
+  /** Copy arbitrary selected rows to the left side. */
+  const copySelectedToLeft = useCallback(() => {
+    if (selectedRows.size === 0) return;
+    pushUndo();
+    const newLeft: string[] = [];
+    for (let i = 0; i < diffLines.length; i++) {
+      const line = diffLines[i];
+      const sel = selectedRows.has(i);
+      if (line.type === "equal") {
+        newLeft.push(line.leftText);
+      } else if (line.type === "removed") {
+        if (!sel) newLeft.push(line.leftText);
+      } else if (line.type === "added") {
+        if (sel) newLeft.push(line.rightText);
+      } else {
+        newLeft.push(sel ? line.rightText : line.leftText);
+      }
+    }
+    const newLc = newLeft.join("\n");
+    setLeftContent(newLc);
+    setLeftDirty(true);
+    setDiffLines(computeDiff(newLc.split("\n"), rightContent.split("\n")));
+    setTableKey((k) => k + 1);
+    setSelectedRows(new Set());
+  }, [diffLines, rightContent, selectedRows]);
+
+  /** Toggle single row selection; Shift+click extends range. */
+  const handleRowLineNoClick = useCallback(
+    (idx: number, e: React.MouseEvent) => {
+      e.stopPropagation();
+      setSelectedRows((prev) => {
+        const next = new Set(prev);
+        if (e.shiftKey && lastClickedRowRef.current !== null) {
+          const from = Math.min(lastClickedRowRef.current, idx);
+          const to = Math.max(lastClickedRowRef.current, idx);
+          for (let j = from; j <= to; j++) {
+            if (diffLines[j]?.type !== "equal") next.add(j);
+          }
+        } else {
+          if (next.has(idx)) next.delete(idx);
+          else next.add(idx);
+          lastClickedRowRef.current = idx;
+        }
+        return next;
+      });
+    },
+    [diffLines],
+  );
+
+  /** Flat array of all non-equal diff line indices (for goNext/goPrev navigation). */
   const diffIndices = diffLines.map((d, i) => (d.type !== "equal" ? i : -1)).filter((i) => i >= 0);
   const diffCount = diffIndices.length;
 
@@ -463,6 +675,21 @@ export default function FileDiffView({ session }: Props) {
         </button>
         {isBinary && <span className="fd-binary-badge">Binary</span>}
         {diffCount > 0 && <span className="fd-stats">{diffCount} differences</span>}
+        {selectedRows.size > 0 && (
+          <>
+            <div className="toolbar-sep" />
+            <span className="fd-sel-count">{selectedRows.size} selected</span>
+            <button className="icon-btn" onClick={copySelectedToRight} data-tooltip="Copy selected lines → Right">
+              →sel
+            </button>
+            <button className="icon-btn" onClick={copySelectedToLeft} data-tooltip="Copy selected lines ← Left">
+              ←sel
+            </button>
+            <button className="icon-btn" onClick={() => setSelectedRows(new Set())} data-tooltip="Clear selection">
+              ✕
+            </button>
+          </>
+        )}
       </div>
 
       {/* Path bar */}
@@ -523,6 +750,18 @@ export default function FileDiffView({ session }: Props) {
       <div className="fd-content">
         {loading && <div className="fd-loading">Loading…</div>}
         {error && <div className="fd-error">{error}</div>}
+        {largeFileInfo && !loading && (
+          <div className="fd-large-file-banner">
+            ⚠ Large file — showing first {LARGE_FILE_MAX_LINES.toLocaleString()} lines per side.
+            {(largeFileInfo.leftTruncated || largeFileInfo.rightTruncated) && (
+              <span>
+                {" "}
+                {[largeFileInfo.leftTruncated && "Left", largeFileInfo.rightTruncated && "Right"].filter(Boolean).join(" & ")} truncated.
+                Edits and saves apply to the loaded portion only.
+              </span>
+            )}
+          </div>
+        )}
 
         {!loading && !error && isBinary && <HexDiffView leftPath={leftPath} rightPath={rightPath} />}
 
@@ -534,8 +773,31 @@ export default function FileDiffView({ session }: Props) {
           <div className="fd-diff-container">
             <ThumbnailStrip data={thumbnailData} />
 
-            <div className="fd-diff-scroll" ref={scrollRef}>
-              <div className="fd-diff-table" key={tableKey}>
+            <div
+              className="fd-diff-scroll"
+              ref={scrollRef}
+              onMouseUp={() => {
+                dragSelectRef.current = null;
+              }}
+              onMouseMove={(e) => {
+                if (!dragSelectRef.current?.active || e.buttons === 0) {
+                  if (e.buttons === 0 && dragSelectRef.current) dragSelectRef.current = null;
+                  return;
+                }
+                const target = document.elementFromPoint(e.clientX, e.clientY);
+                const rowEl = (target as Element)?.closest("[data-row-idx]");
+                if (!rowEl) return;
+                const rowIdx = parseInt((rowEl as HTMLElement).dataset.rowIdx ?? "-1");
+                if (rowIdx < 0) return;
+                const startIdx = dragSelectRef.current.startIdx;
+                const from = Math.min(startIdx, rowIdx);
+                const to = Math.max(startIdx, rowIdx);
+                setSelectedRows(
+                  new Set(Array.from({ length: to - from + 1 }, (_, k) => from + k).filter((idx) => diffLines[idx]?.type !== "equal")),
+                );
+              }}
+            >
+              <div className={"fd-diff-table" + (isOrphanMode ? " fd-orphan-mode" : "")} key={tableKey}>
                 {diffLines.map((line, i) => {
                   const isModified = line.type === "modified" || line.type === "whitespace";
                   const isWhitespace = line.type === "whitespace";
@@ -545,9 +807,27 @@ export default function FileDiffView({ session }: Props) {
                   const gi = rowGroupIdx[i];
                   const isGroupFirst = gi >= 0 && groups[gi][0] === i;
                   const isGroupLast = gi >= 0 && groups[gi][groups[gi].length - 1] === i;
+                  // Pre-compute bracket class (avoids > in JSX template literal attrs)
+                  const isInBlock = gi >= 0 && groups[gi].length > 1;
+                  const bracketClass = isInBlock
+                    ? isGroupFirst
+                      ? " fd-bracket-top"
+                      : isGroupLast
+                        ? " fd-bracket-bot"
+                        : " fd-bracket-mid"
+                    : "";
 
                   // Build HTML for a cell, handling whitespace-visible chars in whitespace-type rows
                   const renderCellHtml = (text: string, spans: typeof line.leftSpans, isLeft: boolean) => {
+                    // While the user is actively typing in this cell, return the raw escaped text so
+                    // React won't update the innerHTML (which would reset the cursor position).
+                    if (
+                      editingCellRef.current &&
+                      editingCellRef.current.idx === i &&
+                      editingCellRef.current.side === (isLeft ? "left" : "right")
+                    ) {
+                      return escapeHtml(editingCellRef.current.text);
+                    }
                     if (isWhitespace && spans) {
                       return spans
                         .map((s) => {
@@ -570,14 +850,32 @@ export default function FileDiffView({ session }: Props) {
                     return syntaxOn && text ? highlightLine(text, lang) : escapeHtml(text);
                   };
 
+                  const isRowSelected = selectedRows.has(i);
+
                   return (
                     <div
                       key={i}
                       id={`diff-row-${i}`}
-                      className={`fd-diff-row fd-diff-${line.type}${i === currentDiffIdx ? " fd-diff-active" : ""}${isGroupFirst ? " fd-group-first" : ""}${isGroupLast ? " fd-group-last" : ""}`}
+                      data-row-idx={i}
+                      className={`fd-diff-row fd-diff-${line.type}${i === currentDiffIdx ? " fd-diff-active" : ""}${isGroupFirst ? " fd-group-first" : ""}${isGroupLast ? " fd-group-last" : ""}${isRowSelected ? " fd-row-selected" : ""}`}
+                      onMouseDown={(e) => {
+                        // Don't intercept clicks inside contentEditable cells
+                        if ((e.target as Element).closest("[contenteditable]")) return;
+                        if (line.type === "equal") return;
+                        e.preventDefault();
+                        dragSelectRef.current = { active: true, startIdx: i };
+                        setSelectedRows(new Set([i]));
+                        lastClickedRowRef.current = i;
+                      }}
                     >
-                      {/* Left line number */}
-                      <span className="fd-line-no">{line.leftLineNo ?? ""}</span>
+                      {/* Left line number — click to select/deselect this row */}
+                      <span
+                        className={"fd-line-no" + (isRowSelected ? " fd-line-no-sel" : "")}
+                        onClick={line.type !== "equal" ? (e) => handleRowLineNoClick(i, e) : undefined}
+                        title={line.type !== "equal" ? "Click to select (Shift+click for range)" : undefined}
+                      >
+                        {line.leftLineNo ?? ""}
+                      </span>
 
                       {/* Left text — contentEditable for inline editing */}
                       <div
@@ -586,10 +884,33 @@ export default function FileDiffView({ session }: Props) {
                         contentEditable={canEditLeft ? "plaintext-only" : undefined}
                         suppressContentEditableWarning
                         spellCheck={false}
+                        onFocus={
+                          canEditLeft
+                            ? () => {
+                                editingCellRef.current = { idx: i, side: "left", text: line.leftText };
+                              }
+                            : undefined
+                        }
+                        onInput={
+                          canEditLeft
+                            ? (e) => {
+                                const text = e.currentTarget.textContent ?? "";
+                                if (editingCellRef.current) editingCellRef.current.text = text;
+                                if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
+                                inputTimerRef.current = setTimeout(() => {
+                                  if (editingCellRef.current?.idx === i && editingCellRef.current.side === "left") {
+                                    handleInlineEditSoft("left", i, text);
+                                  }
+                                }, 150);
+                              }
+                            : undefined
+                        }
                         onBlur={
                           canEditLeft
                             ? (e) => {
                                 const newText = e.currentTarget.textContent ?? "";
+                                editingCellRef.current = null;
+                                if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
                                 if (newText !== line.leftText) handleInlineEdit("left", i, newText);
                               }
                             : undefined
@@ -597,23 +918,23 @@ export default function FileDiffView({ session }: Props) {
                         dangerouslySetInnerHTML={{ __html: renderCellHtml(line.leftText, line.leftSpans, true) }}
                       />
 
-                      {/* Copy-to-right: line copy (always present) + group copy at group start */}
-                      <div className="fd-copy-col">
-                        {line.type !== "equal" && (
+                      {/* Copy-to-right: bracket visual for blocks; single arrow for lone diff lines */}
+                      <div className={"fd-copy-col" + bracketClass}>
+                        {line.type !== "equal" && !isInBlock && (
                           <button
                             className="fd-line-copy fd-line-copy-right"
                             onClick={() => copyLineToRight(i)}
-                            title="→ Copy this line to right"
+                            title="Copy this line to right"
                             tabIndex={-1}
                           >
                             ›
                           </button>
                         )}
-                        {isGroupFirst && groups[gi].length > 1 && (
+                        {isGroupFirst && isInBlock && (
                           <button
                             className="fd-group-copy fd-group-copy-right"
                             onClick={() => copyGroupToRight(gi)}
-                            title={`⇥ Copy all ${groups[gi].length} lines of this section to right`}
+                            title={"Copy " + groups[gi].length + " lines to right"}
                             tabIndex={-1}
                           >
                             »
@@ -623,19 +944,19 @@ export default function FileDiffView({ session }: Props) {
 
                       <span className="fd-gutter" />
 
-                      {/* Copy-to-left: group copy at group start + line copy */}
-                      <div className="fd-copy-col fd-copy-col-left">
-                        {isGroupFirst && groups[gi].length > 1 && (
+                      {/* Copy-to-left: bracket visual for blocks; single arrow for lone diff lines */}
+                      <div className={"fd-copy-col fd-copy-col-left" + bracketClass}>
+                        {isGroupFirst && isInBlock && (
                           <button
                             className="fd-group-copy fd-group-copy-left"
                             onClick={() => copyGroupToLeft(gi)}
-                            title={`⇤ Copy all ${groups[gi].length} lines of this section to left`}
+                            title={"Copy " + groups[gi].length + " lines to left"}
                             tabIndex={-1}
                           >
                             «
                           </button>
                         )}
-                        {line.type !== "equal" && (
+                        {line.type !== "equal" && !isInBlock && (
                           <button
                             className="fd-line-copy fd-line-copy-left"
                             onClick={() => copyLineToLeft(i)}
@@ -647,8 +968,14 @@ export default function FileDiffView({ session }: Props) {
                         )}
                       </div>
 
-                      {/* Right line number */}
-                      <span className="fd-line-no">{line.rightLineNo ?? ""}</span>
+                      {/* Right line number — click to select/deselect this row */}
+                      <span
+                        className={"fd-line-no" + (isRowSelected ? " fd-line-no-sel" : "")}
+                        onClick={line.type !== "equal" ? (e) => handleRowLineNoClick(i, e) : undefined}
+                        title={line.type !== "equal" ? "Click to select (Shift+click for range)" : undefined}
+                      >
+                        {line.rightLineNo ?? ""}
+                      </span>
 
                       {/* Right text — contentEditable for inline editing */}
                       <div
@@ -657,10 +984,33 @@ export default function FileDiffView({ session }: Props) {
                         contentEditable={canEditRight ? "plaintext-only" : undefined}
                         suppressContentEditableWarning
                         spellCheck={false}
+                        onFocus={
+                          canEditRight
+                            ? () => {
+                                editingCellRef.current = { idx: i, side: "right", text: line.rightText };
+                              }
+                            : undefined
+                        }
+                        onInput={
+                          canEditRight
+                            ? (e) => {
+                                const text = e.currentTarget.textContent ?? "";
+                                if (editingCellRef.current) editingCellRef.current.text = text;
+                                if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
+                                inputTimerRef.current = setTimeout(() => {
+                                  if (editingCellRef.current?.idx === i && editingCellRef.current.side === "right") {
+                                    handleInlineEditSoft("right", i, text);
+                                  }
+                                }, 150);
+                              }
+                            : undefined
+                        }
                         onBlur={
                           canEditRight
                             ? (e) => {
                                 const newText = e.currentTarget.textContent ?? "";
+                                editingCellRef.current = null;
+                                if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
                                 if (newText !== line.rightText) handleInlineEdit("right", i, newText);
                               }
                             : undefined
@@ -703,7 +1053,9 @@ export default function FileDiffView({ session }: Props) {
             )}
           </div>
           <div className="fd-foot-center">
-            {diffCount > 0 && (
+            {diffCount === 0 ? (
+              <span className="fd-foot-identical">Identical</span>
+            ) : (
               <span>
                 {diffCount} difference{diffCount !== 1 ? "s" : ""}
               </span>

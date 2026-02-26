@@ -108,20 +108,6 @@
   background: var(--bg-hover);
 }
 
-/* State indicator — narrow bar (not a circle) */
-.fc-col-state {
-  width: 4px;
-  height: 14px;
-  border-radius: 2px;
-  margin-right: 6px;
-  flex-shrink: 0;
-}
-
-.fc-header-row .fc-col-state {
-  width: 4px;
-  background: transparent;
-}
-
 .fc-col-toggle {
   width: 14px;
   flex-shrink: 0;
@@ -152,10 +138,10 @@
 }
 
 .fc-col-date {
-  width: 88px;
+  width: 102px;
   text-align: right;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 10px;
   flex-shrink: 0;
   padding: 0 6px;
   white-space: nowrap;
@@ -165,8 +151,11 @@
   width: 62px;
   text-align: right;
   color: var(--text-secondary);
+  font-size: 10px;
   flex-shrink: 0;
   padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .fc-col-cmp {
@@ -182,14 +171,24 @@
   font-style: italic;
 }
 
-/* Hidden-file rows: dimmed filename */
-.fc-name-hidden {
-  color: var(--fc-hidden-color, #6b7280);
+/* Selected row highlight */
+.fc-row-selected {
+  background: var(--bg-selected, rgba(0, 120, 215, 0.18));
+}
+
+/* Orphan filename: purple on the side that owns it */
+.fc-name-orphan {
+  color: var(--state-only-left, #9b59b6);
   font-style: italic;
 }
 
-/* Orphan placeholder: striped grey block shown on the empty side */
-.fc-orphan-side {
+/* Newer file cells (name, size, date): light red — only for modified files */
+.fc-cell-newer {
+  color: #c0392b;
+}
+
+/* Blank placeholder on the opposite orphan side — dark stripe to show "nothing here" */
+.fc-orphan-blank {
   flex: 1;
   height: 14px;
   border-radius: 2px;
@@ -197,10 +196,16 @@
     135deg,
     transparent,
     transparent 3px,
-    rgba(120, 120, 140, 0.25) 3px,
-    rgba(120, 120, 140, 0.25) 6px
+    rgba(120, 120, 140, 0.22) 3px,
+    rgba(120, 120, 140, 0.22) 6px
   );
-  background-color: rgba(100, 100, 120, 0.1);
+  background-color: rgba(100, 100, 120, 0.08);
+}
+
+/* Hidden-file rows: dimmed filename */
+.fc-name-hidden {
+  color: var(--fc-hidden-color, #6b7280);
+  font-style: italic;
 }
 
 .fc-copy-status {

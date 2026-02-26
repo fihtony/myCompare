@@ -1,9 +1,16 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import type { FolderSession, FolderCompareResult, CompareItem } from "@shared/types";
 import { CompareState } from "@shared/types";
 import { useSessionStore } from "../store/session-store";
 import { log, error as logError } from "../../shared/logger";
 import "./FolderCompareView.css";
+
+// Module-level caches — survive component unmount (tab switches)
+const _collapsedCache = new Map<string, Set<string>>();
+const _showHiddenCache = new Map<string, boolean>();
+const _scrollCache = new Map<string, number>();
+// Track which sessions have already been auto-collapsed (first compare only)
+const _autoCollapsedSessions = new Set<string>();
 
 interface Props {
   session: FolderSession;
@@ -38,11 +45,33 @@ function formatSize(bytes: number): string {
 function formatDate(ts: number | undefined): string {
   if (!ts) return "";
   const d = new Date(ts);
+  const yy = String(d.getFullYear()).slice(-2);
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   const hh = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
-  return `${mm}/${dd} ${hh}:${min}`;
+  return `${yy}/${mm}/${dd} ${hh}:${min}`;
+}
+
+/** Sum the size of all file-type descendants for a directory.
+ * Skips files where size is unknown (null) rather than bailing on the first null.
+ * Returns undefined only when there are no files at all under this directory.
+ */
+function computeDirSize(dirRelPath: string, allItems: CompareItem[], side: "left" | "right"): number | undefined {
+  const prefix = dirRelPath + "/";
+  const files = allItems.filter((it) => it.type === "file" && it.relativePath.startsWith(prefix));
+  if (files.length === 0) return undefined;
+  const key = side === "left" ? "leftSize" : "rightSize";
+  let total = 0;
+  let hasAny = false;
+  for (const f of files) {
+    const v = f[key];
+    if (v != null) {
+      total += v;
+      hasAny = true;
+    }
+  }
+  return hasAny ? total : undefined;
 }
 
 /** Check whether any ancestor directory of the given relativePath is in the collapsed set. */
@@ -95,8 +124,77 @@ export default function FolderCompareView({ session }: Props) {
   const [leftPath, setLeftPath] = useState(session.leftPath);
   const [rightPath, setRightPath] = useState(session.rightPath);
   const [excludeInput, setExcludeInput] = useState(session.excludePatterns.join(", "));
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
-  const [showHidden, setShowHidden] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const [collapsedDirs, _setCollapsedDirsRaw] = useState<Set<string>>(() => _collapsedCache.get(session.id) ?? new Set());
+  const [showHidden, _setShowHiddenRaw] = useState<boolean>(() => _showHiddenCache.get(session.id) ?? true);
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
+  /** Async-computed directory sizes — Map<relativePath, {left?, right?}> */
+  const [dirSizeMap, setDirSizeMap] = useState<Map<string, { left?: number; right?: number }>>(new Map());
+
+  const setCollapsedDirs = useCallback(
+    (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+      _setCollapsedDirsRaw((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        _collapsedCache.set(session.id, next);
+        return next;
+      });
+    },
+    [session.id],
+  );
+
+  const setShowHidden = useCallback(
+    (updater: boolean | ((prev: boolean) => boolean)) => {
+      _setShowHiddenRaw((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        _showHiddenCache.set(session.id, next);
+        return next;
+      });
+    },
+    [session.id],
+  );
+
+  /** Compute directory sizes asynchronously in background chunks. */
+  useEffect(() => {
+    if (!result) {
+      setDirSizeMap(new Map());
+      return;
+    }
+    const dirs = result.items.filter((it) => it.type === "directory");
+    if (dirs.length === 0) return;
+    let cancelled = false;
+    const newMap = new Map<string, { left?: number; right?: number }>();
+    const CHUNK = 30;
+    let idx = 0;
+    const items = result.items;
+    function processChunk() {
+      if (cancelled) return;
+      const end = Math.min(idx + CHUNK, dirs.length);
+      for (let j = idx; j < end; j++) {
+        const dir = dirs[j];
+        newMap.set(dir.relativePath, {
+          left: computeDirSize(dir.relativePath, items, "left"),
+          right: computeDirSize(dir.relativePath, items, "right"),
+        });
+      }
+      idx = end;
+      if (idx < dirs.length) setTimeout(processChunk, 0);
+      else if (!cancelled) setDirSizeMap(new Map(newMap));
+    }
+    setTimeout(processChunk, 0);
+    return () => {
+      cancelled = true;
+    };
+  }, [result]);
+
+  /** Auto-collapse all directories on first compare for this session. */
+  useEffect(() => {
+    if (!result) return;
+    if (_autoCollapsedSessions.has(session.id)) return;
+    _autoCollapsedSessions.add(session.id);
+    const dirPaths = new Set(result.items.filter((it) => it.type === "directory").map((it) => it.relativePath));
+    setCollapsedDirs(dirPaths);
+  }, [result, session.id, setCollapsedDirs]);
 
   const doCompare = useCallback(
     async (overrideLeft?: string, overrideRight?: string) => {
@@ -138,8 +236,26 @@ export default function FolderCompareView({ session }: Props) {
       log("FolderCompare", `Auto-compare on mount: ${session.leftPath} vs ${session.rightPath}`);
       doCompare();
     }
+    // Restore scroll position
+    const saved = _scrollCache.get(session.id);
+    if (saved !== undefined && scrollRef.current) {
+      scrollRef.current.scrollTop = saved;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
+
+  // When a pending session gets its right path filled (via drag-and-drop),
+  // sync local state and trigger compare.
+  useEffect(() => {
+    if (session.rightPath && session.rightPath !== rightPath) {
+      setRightPath(session.rightPath);
+      const lp = leftPath || session.leftPath;
+      if (lp) {
+        doCompare(lp, session.rightPath);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.rightPath]);
 
   const handleSelectLeft = async () => {
     const p = await window.electronAPI.dialogSelectFolder();
@@ -159,8 +275,29 @@ export default function FolderCompareView({ session }: Props) {
     doCompare(newLeft, newRight);
   };
 
+  const handleRowClick = (item: CompareItem, e: React.MouseEvent) => {
+    setSelectedPaths((prev) => {
+      const next = new Set(prev);
+      if (e.ctrlKey || e.metaKey) {
+        // Toggle this item in multi-selection
+        if (next.has(item.relativePath)) next.delete(item.relativePath);
+        else next.add(item.relativePath);
+      } else {
+        // Single-select; click again to deselect
+        if (next.size === 1 && next.has(item.relativePath)) next.clear();
+        else {
+          next.clear();
+          next.add(item.relativePath);
+        }
+      }
+      return next;
+    });
+  };
+
   const handleDoubleClick = (item: CompareItem) => {
-    if (item.type === "file") {
+    if (item.type === "directory") {
+      toggleCollapse(item.relativePath);
+    } else {
       // Pass empty string for the side that doesn't exist — FileDiffView handles one-sided display
       const lp = item.state !== "only-right" ? `${leftPath}/${item.relativePath}` : "";
       const rp = item.state !== "only-left" ? `${rightPath}/${item.relativePath}` : "";
@@ -177,6 +314,50 @@ export default function FolderCompareView({ session }: Props) {
     });
   };
 
+  const collapseAll = useCallback(() => {
+    if (!result) return;
+    const dirPaths = new Set(result.items.filter((i) => i.type === "directory").map((i) => i.relativePath));
+    setCollapsedDirs(dirPaths);
+  }, [result, setCollapsedDirs]);
+
+  const expandAll = useCallback(() => {
+    setCollapsedDirs(new Set());
+  }, [setCollapsedDirs]);
+
+  /**
+   * Collect copy-eligible files based on current selection.
+   * - If items are selected: files in selection + file descendants of selected dirs.
+   * - Otherwise: all diff files.
+   */
+  function collectCopyFiles(direction: "toRight" | "toLeft"): CompareItem[] {
+    if (!result) return [];
+    const validStates = direction === "toRight" ? ["modified", "only-left"] : ["modified", "only-right"];
+
+    if (selectedPaths.size > 0) {
+      const collected: CompareItem[] = [];
+      for (const relPath of selectedPaths) {
+        const sel = result.items.find((i) => i.relativePath === relPath);
+        if (!sel) continue;
+        if (sel.type === "file") {
+          if (validStates.includes(sel.state)) collected.push(sel);
+        } else {
+          // directory: collect all file descendants
+          const prefix = relPath + "/";
+          result.items.forEach((i) => {
+            if (i.type === "file" && i.relativePath.startsWith(prefix) && validStates.includes(i.state)) {
+              collected.push(i);
+            }
+          });
+        }
+      }
+      // Deduplicate
+      const seen = new Set<string>();
+      return collected.filter((i) => (seen.has(i.relativePath) ? false : seen.add(i.relativePath) && true));
+    }
+    // No selection: copy all diff files
+    return result.items.filter((i) => i.type === "file" && validStates.includes(i.state));
+  }
+
   /**
    * Copy changed files from left → right.
    * - modified: overwrite right with left
@@ -186,7 +367,7 @@ export default function FolderCompareView({ session }: Props) {
    */
   const handleCopyToRight = async () => {
     if (!result || !leftPath || !rightPath) return;
-    const candidates = result.items.filter((item) => item.type === "file" && (item.state === "modified" || item.state === "only-left"));
+    const candidates = collectCopyFiles("toRight");
     if (!candidates.length) {
       setCopyStatus("Nothing to copy.");
       return;
@@ -215,7 +396,7 @@ export default function FolderCompareView({ session }: Props) {
    */
   const handleCopyToLeft = async () => {
     if (!result || !leftPath || !rightPath) return;
-    const candidates = result.items.filter((item) => item.type === "file" && (item.state === "modified" || item.state === "only-right"));
+    const candidates = collectCopyFiles("toLeft");
     if (!candidates.length) {
       setCopyStatus("Nothing to copy.");
       return;
@@ -267,12 +448,45 @@ export default function FolderCompareView({ session }: Props) {
           ↻
         </button>
         <div className="toolbar-sep" />
-        <button className="icon-btn" onClick={handleCopyToRight} data-tooltip="Copy changed files Left → Right (no deletions)">
-          →
-        </button>
-        <button className="icon-btn" onClick={handleCopyToLeft} data-tooltip="Copy changed files Right → Left (no deletions)">
-          ←
-        </button>
+        {(() => {
+          const toRight = result ? collectCopyFiles("toRight") : [];
+          const toLeft = result ? collectCopyFiles("toLeft") : [];
+          const selCount = selectedPaths.size;
+          const rightTip =
+            selCount > 0
+              ? toRight.length > 0
+                ? `Copy ${toRight.length} selected file(s) → Right`
+                : "No copyable files in selection"
+              : `Copy all ${toRight.length} changed file(s) → Right`;
+          const leftTip =
+            selCount > 0
+              ? toLeft.length > 0
+                ? `Copy ${toLeft.length} selected file(s) ← Left`
+                : "No copyable files in selection"
+              : `Copy all ${toLeft.length} changed file(s) ← Left`;
+          return (
+            <>
+              <button
+                className="icon-btn"
+                onClick={handleCopyToRight}
+                data-tooltip={rightTip}
+                disabled={toRight.length === 0}
+                style={{ opacity: toRight.length === 0 ? 0.35 : undefined }}
+              >
+                →
+              </button>
+              <button
+                className="icon-btn"
+                onClick={handleCopyToLeft}
+                data-tooltip={leftTip}
+                disabled={toLeft.length === 0}
+                style={{ opacity: toLeft.length === 0 ? 0.35 : undefined }}
+              >
+                ←
+              </button>
+            </>
+          );
+        })()}
         <div className="toolbar-sep" />
         <button
           className="icon-btn"
@@ -285,9 +499,15 @@ export default function FolderCompareView({ session }: Props) {
         >
           {session.filterMode === "diff-only" ? "≠" : "="}
         </button>
+        <button className="icon-btn" onClick={collapseAll} data-tooltip="Collapse All Folders" title="Collapse all folders">
+          ⊖
+        </button>
+        <button className="icon-btn" onClick={expandAll} data-tooltip="Expand All Folders" title="Expand all folders">
+          ⊕
+        </button>
         <button
           className={`icon-btn${showHidden ? " icon-btn--active" : ""}`}
-          onClick={() => setShowHidden((v) => !v)}
+          onClick={() => setShowHidden((v: boolean) => !v)}
           data-tooltip={showHidden ? "Hide Dotfiles" : "Show Dotfiles"}
           title={showHidden ? "Dotfiles visible — click to hide" : "Dotfiles hidden — click to show"}
         >
@@ -338,7 +558,13 @@ export default function FolderCompareView({ session }: Props) {
       </div>
 
       {/* Content */}
-      <div className="fc-content">
+      <div
+        className="fc-content"
+        ref={scrollRef}
+        onScroll={() => {
+          if (scrollRef.current) _scrollCache.set(session.id, scrollRef.current.scrollTop);
+        }}
+      >
         {loading && <div className="fc-loading">Comparing...</div>}
         {error && <div className="fc-error">{error}</div>}
         {!loading && !error && !result && <div className="fc-placeholder">Enter left and right paths, then click Compare ▶</div>}
@@ -347,17 +573,17 @@ export default function FolderCompareView({ session }: Props) {
             <div className="fc-header-row">
               <div className="fc-name-cell">
                 <span className="fc-col-toggle" />
-                <span className="fc-col-state" />
                 <span className="fc-col-name">Left</span>
               </div>
-              <span className="fc-col-date">Modified</span>
               <span className="fc-col-size">Size</span>
+              <span className="fc-col-date">Modified</span>
               <span className="fc-col-cmp">⇔</span>
               <div className="fc-name-cell">
+                <span className="fc-col-toggle" />
                 <span className="fc-col-name">Right</span>
               </div>
-              <span className="fc-col-date">Modified</span>
               <span className="fc-col-size">Size</span>
+              <span className="fc-col-date">Modified</span>
             </div>
             <div className="fc-items">
               {visibleItems.map((item, i) => {
@@ -369,67 +595,102 @@ export default function FolderCompareView({ session }: Props) {
                 const isHiddenItem = item.isHidden;
                 const onlyLeft = item.state === "only-left";
                 const onlyRight = item.state === "only-right";
+                const isOrphan = onlyLeft || onlyRight;
                 const indentStyle = { paddingLeft: `${depth * 16}px` };
+                const isSelected = selectedPaths.has(item.relativePath);
+                // For directories, sizes are computed asynchronously
+                const leftDisplaySize = isDir ? dirSizeMap.get(item.relativePath)?.left : item.leftSize;
+                const rightDisplaySize = isDir ? dirSizeMap.get(item.relativePath)?.right : item.rightSize;
+                // Newer side: only for modified files (both sides exist)
+                let newerSide: "left" | "right" | null = null;
+                if (item.type === "file" && item.state === "modified" && item.leftDate && item.rightDate) {
+                  if (item.leftDate > item.rightDate) newerSide = "left";
+                  else if (item.rightDate > item.leftDate) newerSide = "right";
+                }
 
                 return (
                   <div
                     key={i}
-                    className={`fc-row${isDir ? " fc-row-dir" : ""}${isHiddenItem ? " fc-row-hidden" : ""}`}
+                    className={`fc-row${isDir ? " fc-row-dir" : ""}${isHiddenItem ? " fc-row-hidden" : ""}${isSelected ? " fc-row-selected" : ""}`}
+                    onClick={(e) => handleRowClick(item, e)}
                     onDoubleClick={() => handleDoubleClick(item)}
                   >
-                    {/* ── Left name cell (indented, clips to available space) ── */}
+                    {/* ── Left name cell ── */}
                     <div className="fc-name-cell" style={indentStyle}>
-                      {/* Expand/collapse toggle */}
+                      {/* Chevron only on the side that actually has this folder */}
                       <span
                         className="fc-col-toggle"
                         onClick={(e) => {
-                          if (isDir) {
+                          if (isDir && !onlyRight) {
                             e.stopPropagation();
                             toggleCollapse(item.relativePath);
                           }
                         }}
                       >
-                        {isDir ? (isCollapsed ? "▶" : "▼") : ""}
+                        {isDir && !onlyRight ? (isCollapsed ? "▶" : "▼") : ""}
                       </span>
-                      {/* State bar */}
-                      <span className="fc-col-state" style={{ background: stateColors[displayState] }} />
-                      {/* Filename */}
                       {onlyRight ? (
-                        <span className="fc-orphan-side" />
+                        <span className="fc-orphan-blank" />
                       ) : (
-                        <span className={`fc-col-name${isHiddenItem ? " fc-name-hidden" : ""}`} title={item.name}>
+                        <span
+                          className={`fc-col-name${isHiddenItem ? " fc-name-hidden" : ""}${onlyLeft ? " fc-name-orphan" : ""}${newerSide === "left" ? " fc-cell-newer" : ""}`}
+                          title={item.name}
+                        >
                           {isDir ? "📁 " : ""}
                           {item.name}
                         </span>
                       )}
                     </div>
 
-                    {/* Left date — fixed, not indented */}
-                    <span className="fc-col-date">{!onlyRight ? formatDate(item.leftDate) : ""}</span>
-                    {/* Left size — fixed, not indented */}
-                    <span className="fc-col-size">{!onlyRight && item.leftSize != null ? formatSize(item.leftSize) : ""}</span>
-
-                    {/* Center comparison icon */}
-                    <span className="fc-col-cmp" style={{ color: stateColors[displayState] }}>
-                      {stateIcons[displayState] || "?"}
+                    {/* Left size */}
+                    <span className={`fc-col-size${newerSide === "left" ? " fc-cell-newer" : ""}`}>
+                      {!onlyRight && leftDisplaySize != null ? formatSize(leftDisplaySize) : ""}
+                    </span>
+                    {/* Left date */}
+                    <span className={`fc-col-date${newerSide === "left" ? " fc-cell-newer" : ""}`}>
+                      {!onlyRight ? formatDate(item.leftDate) : ""}
                     </span>
 
-                    {/* ── Right name cell (indented for symmetry) ── */}
+                    {/* Center comparison icon — blank for orphan rows (no arrow needed) */}
+                    <span className="fc-col-cmp" style={{ color: stateColors[displayState] }}>
+                      {isOrphan ? "" : stateIcons[displayState] || "?"}
+                    </span>
+
+                    {/* ── Right name cell ── */}
                     <div className="fc-name-cell" style={indentStyle}>
+                      {/* Chevron only on the side that actually has this folder */}
+                      <span
+                        className="fc-col-toggle"
+                        onClick={(e) => {
+                          if (isDir && !onlyLeft) {
+                            e.stopPropagation();
+                            toggleCollapse(item.relativePath);
+                          }
+                        }}
+                      >
+                        {isDir && !onlyLeft ? (isCollapsed ? "▶" : "▼") : ""}
+                      </span>
                       {onlyLeft ? (
-                        <span className="fc-orphan-side" />
+                        <span className="fc-orphan-blank" />
                       ) : (
-                        <span className={`fc-col-name${isHiddenItem ? " fc-name-hidden" : ""}`} title={item.name}>
+                        <span
+                          className={`fc-col-name${isHiddenItem ? " fc-name-hidden" : ""}${onlyRight ? " fc-name-orphan" : ""}${newerSide === "right" ? " fc-cell-newer" : ""}`}
+                          title={item.name}
+                        >
                           {isDir ? "📁 " : ""}
                           {item.name}
                         </span>
                       )}
                     </div>
 
-                    {/* Right date — fixed, not indented */}
-                    <span className="fc-col-date">{!onlyLeft ? formatDate(item.rightDate) : ""}</span>
-                    {/* Right size — fixed, not indented */}
-                    <span className="fc-col-size">{!onlyLeft && item.rightSize != null ? formatSize(item.rightSize) : ""}</span>
+                    {/* Right size */}
+                    <span className={`fc-col-size${newerSide === "right" ? " fc-cell-newer" : ""}`}>
+                      {!onlyLeft && rightDisplaySize != null ? formatSize(rightDisplaySize) : ""}
+                    </span>
+                    {/* Right date */}
+                    <span className={`fc-col-date${newerSide === "right" ? " fc-cell-newer" : ""}`}>
+                      {!onlyLeft ? formatDate(item.rightDate) : ""}
+                    </span>
                   </div>
                 );
               })}
