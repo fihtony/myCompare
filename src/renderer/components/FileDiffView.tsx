@@ -90,11 +90,14 @@ export default function FileDiffView({ session }: Props) {
   } | null>(null);
   /** Undo stack: each entry is a snapshot of {leftContent, rightContent} before an edit. */
   const undoStackRef = useRef<Array<{ lc: string; rc: string }>>([]);
+  /** Original content loaded from disk — used to determine dirty state after undo. */
+  const originalLeftContentRef = useRef<string>("");
+  const originalRightContentRef = useRef<string>("");
   /** Increment to force full remount of the diff table (after file load or inline edit commit). */
   const [tableKey, setTableKey] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Which cell is currently being typed into — prevents React from overwriting the user’s DOM text. */
-  const editingCellRef = useRef<{ idx: number; side: "left" | "right"; text: string } | null>(null);
+  const editingCellRef = useRef<{ idx: number; side: "left" | "right"; text: string; originalText: string } | null>(null);
   /** Debounce timer for on-input live diff recompute. */
   const inputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** Stores the mousedown coordinates so we can restore caret position after activating edit. */
@@ -145,8 +148,9 @@ export default function FileDiffView({ session }: Props) {
     setRightContent(rc);
     setDiffLines(computeDiff(lc.split("\n"), rc.split("\n")));
     setTableKey((k) => k + 1);
-    setLeftDirty(true);
-    setRightDirty(true);
+    // Only mark dirty if the restored content differs from what was originally loaded from disk.
+    setLeftDirty(lc !== originalLeftContentRef.current);
+    setRightDirty(rc !== originalRightContentRef.current);
   }, []);
 
   /** Contiguous groups of non-equal diff lines, plus a row→group index map. */
@@ -233,10 +237,14 @@ export default function FileDiffView({ session }: Props) {
           setLeftContent(content);
           setRightContent("");
           setDiffLines(computeDiff(content.split("\n"), []));
+          originalLeftContentRef.current = content;
+          originalRightContentRef.current = "";
         } else {
           setRightContent(content);
           setLeftContent("");
           setDiffLines(computeDiff([], content.split("\n")));
+          originalLeftContentRef.current = "";
+          originalRightContentRef.current = content;
         }
         setTableKey((k) => k + 1);
         return;
@@ -283,6 +291,8 @@ export default function FileDiffView({ session }: Props) {
 
       setLeftContent(left);
       setRightContent(right);
+      originalLeftContentRef.current = left;
+      originalRightContentRef.current = right;
       const diffResult = computeDiff(left.split("\n"), right.split("\n"));
       log(
         "FileDiff",
@@ -321,13 +331,24 @@ export default function FileDiffView({ session }: Props) {
   // Ctrl+Z / Cmd+Z undo
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
-        // Only intercept if focus is not inside a contentEditable (let browser handle there)
-        const active = document.activeElement;
-        if (active && (active as HTMLElement).contentEditable === "plaintext-only") return;
-        e.preventDefault();
-        handleUndo();
+      if (!((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z")) return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.contentEditable === "plaintext-only") {
+        // Cell is in edit mode. Check whether the user has typed anything uncommitted.
+        // If they have, let the browser handle its own native undo inside the cell.
+        // If the cell text still matches the original (just cursor movement, no new input),
+        // fall through to macro undo so previous committed changes can be reverted.
+        const ref = editingCellRef.current;
+        const currentText = active.textContent ?? "";
+        if (ref && currentText !== ref.originalText) {
+          // Uncommitted changes exist → browser native undo
+          return;
+        }
+        // No uncommitted changes: close the cell then do macro undo
+        active.blur();
       }
+      e.preventDefault();
+      handleUndo();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -1000,9 +1021,10 @@ export default function FileDiffView({ session }: Props) {
                         title={canEditLeft && !(activeEditCell?.idx === i && activeEditCell?.side === "left") ? "Click to edit" : undefined}
                         onMouseDown={(e) => {
                           mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-                        }}
-                        onMouseEnter={(e) => {
-                          if (e.buttons === 0) startTextSelect("left");
+                          // Clear any stale selection from the opposite side before locking
+                          // this side. Prevents a brief highlight flash when switching columns.
+                          window.getSelection()?.removeAllRanges();
+                          startTextSelect("left");
                         }}
                         onClick={
                           canEditLeft
@@ -1016,7 +1038,7 @@ export default function FileDiffView({ session }: Props) {
                         onFocus={
                           canEditLeft
                             ? () => {
-                                editingCellRef.current = { idx: i, side: "left", text: line.leftText };
+                                editingCellRef.current = { idx: i, side: "left", text: line.leftText, originalText: line.leftText };
                               }
                             : undefined
                         }
@@ -1118,9 +1140,10 @@ export default function FileDiffView({ session }: Props) {
                         }
                         onMouseDown={(e) => {
                           mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-                        }}
-                        onMouseEnter={(e) => {
-                          if (e.buttons === 0) startTextSelect("right");
+                          // Clear any stale selection from the opposite side before locking
+                          // this side. Prevents a brief highlight flash when switching columns.
+                          window.getSelection()?.removeAllRanges();
+                          startTextSelect("right");
                         }}
                         onClick={
                           canEditRight
@@ -1133,7 +1156,7 @@ export default function FileDiffView({ session }: Props) {
                         onFocus={
                           canEditRight
                             ? () => {
-                                editingCellRef.current = { idx: i, side: "right", text: line.rightText };
+                                editingCellRef.current = { idx: i, side: "right", text: line.rightText, originalText: line.rightText };
                               }
                             : undefined
                         }
