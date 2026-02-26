@@ -9,8 +9,7 @@ import "./FolderCompareView.css";
 const _collapsedCache = new Map<string, Set<string>>();
 const _showHiddenCache = new Map<string, boolean>();
 const _scrollCache = new Map<string, number>();
-// Track which sessions have already been auto-collapsed (first compare only)
-const _autoCollapsedSessions = new Set<string>();
+const _excludeInputCache = new Map<string, string>();
 
 interface Props {
   session: FolderSession;
@@ -83,6 +82,24 @@ function isAncestorCollapsed(relativePath: string, collapsed: Set<string>): bool
   return false;
 }
 
+/** Simple glob-style matcher: supports * (any chars) and ? (one char). Case-insensitive. */
+function matchesGlob(name: string, pattern: string): boolean {
+  if (!pattern) return false;
+  // Escape all regex meta chars except * and ?
+  const re = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
+  return new RegExp(`^${re}$`, "i").test(name);
+}
+
+/** Return true if the item's relative path contains a segment matching any of the given patterns. */
+function isExcludedByPatterns(relativePath: string, patterns: string[]): boolean {
+  if (patterns.length === 0) return false;
+  const segments = relativePath.replace(/\\/g, "/").split("/");
+  return patterns.some((pat) => segments.some((seg) => matchesGlob(seg, pat)));
+}
+
 /** Check whether any ancestor directory of the given relativePath is hidden (starts with dot). */
 function isAncestorHidden(relativePath: string): boolean {
   const parts = relativePath.split("/");
@@ -123,7 +140,7 @@ export default function FolderCompareView({ session }: Props) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [leftPath, setLeftPath] = useState(session.leftPath);
   const [rightPath, setRightPath] = useState(session.rightPath);
-  const [excludeInput, setExcludeInput] = useState(session.excludePatterns.join(", "));
+  const [excludeInput, setExcludeInput] = useState(() => _excludeInputCache.get(session.id) ?? session.excludePatterns.join(", "));
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [collapsedDirs, _setCollapsedDirsRaw] = useState<Set<string>>(() => _collapsedCache.get(session.id) ?? new Set());
@@ -187,14 +204,12 @@ export default function FolderCompareView({ session }: Props) {
     };
   }, [result]);
 
-  /** Auto-collapse all directories on first compare for this session. */
+  /** Collapse all directories whenever a new comparison result arrives. */
   useEffect(() => {
     if (!result) return;
-    if (_autoCollapsedSessions.has(session.id)) return;
-    _autoCollapsedSessions.add(session.id);
     const dirPaths = new Set(result.items.filter((it) => it.type === "directory").map((it) => it.relativePath));
     setCollapsedDirs(dirPaths);
-  }, [result, session.id, setCollapsedDirs]);
+  }, [result, setCollapsedDirs]);
 
   const doCompare = useCallback(
     async (overrideLeft?: string, overrideRight?: string) => {
@@ -206,12 +221,14 @@ export default function FolderCompareView({ session }: Props) {
       log("FolderCompare", `Starting comparison: ${lp} vs ${rp}`);
       try {
         const patterns = excludeInput
-          .split(",")
+          .split(/[,;]/)
           .map((p) => p.trim())
           .filter(Boolean);
-        log("FolderCompare", `Exclude patterns: [${patterns.join(", ")}]`);
+        log("FolderCompare", `Exclude patterns (client-side only): [${patterns.join(", ")}]`);
         updateSession(session.id, { leftPath: lp, rightPath: rp, excludePatterns: patterns } as any);
-        const res = await window.electronAPI.compareFolder(lp, rp, patterns);
+        // Always scan everything; exclude patterns are applied client-side so they can be
+        // toggled instantly without re-running a full backend compare.
+        const res = await window.electronAPI.compareFolder(lp, rp, []);
         log(
           "FolderCompare",
           `Compare complete: ${res.stats.total} items (${res.stats.equal} equal, ${res.stats.modified} modified, ${res.stats.onlyLeft} left-only, ${res.stats.onlyRight} right-only)`,
@@ -259,12 +276,18 @@ export default function FolderCompareView({ session }: Props) {
 
   const handleSelectLeft = async () => {
     const p = await window.electronAPI.dialogSelectFolder();
-    if (p) setLeftPath(p);
+    if (p) {
+      setLeftPath(p);
+      if (rightPath) doCompare(p, rightPath);
+    }
   };
 
   const handleSelectRight = async () => {
     const p = await window.electronAPI.dialogSelectFolder();
-    if (p) setRightPath(p);
+    if (p) {
+      setRightPath(p);
+      if (leftPath) doCompare(leftPath, p);
+    }
   };
 
   const handleSwap = () => {
@@ -416,6 +439,11 @@ export default function FolderCompareView({ session }: Props) {
     setTimeout(() => setCopyStatus(null), 3000);
   };
 
+  const excludePatterns = excludeInput
+    .split(/[,;]/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
   const filteredItems = result?.items.filter((item) => {
     if (!showHidden) {
       // Hide hidden items themselves
@@ -423,11 +451,33 @@ export default function FolderCompareView({ session }: Props) {
       // Hide items inside hidden ancestor directories
       if (isAncestorHidden(item.relativePath)) return false;
     }
-    if (session.filterMode === "diff-only" && item.state === "equal") return false;
+    if (session.filterMode === "diff-only") {
+      // For directories: use the aggregated state derived from file descendants,
+      // because dir-compare may mark a directory as "equal" even when children differ.
+      if (item.type === "directory") {
+        if (computeDirState(item.relativePath, result.items) === CompareState.EQUAL) return false;
+      } else {
+        if (item.state === "equal") return false;
+      }
+    }
+    // Client-side exclude pattern filtering (instant feedback while backend re-compare is pending)
+    if (isExcludedByPatterns(item.relativePath, excludePatterns)) return false;
     return true;
   });
 
   const visibleItems = filteredItems?.filter((item) => !isAncestorCollapsed(item.relativePath, collapsedDirs));
+
+  // Compute stats from the client-filtered file list so exclude patterns and diff-only
+  // mode are reflected in the summary bar.
+  const filteredFileItems = filteredItems?.filter((i) => i.type === "file");
+  const filteredStats = filteredFileItems
+    ? {
+        modified: filteredFileItems.filter((i) => i.state === "modified").length,
+        onlyLeft: filteredFileItems.filter((i) => i.state === "only-left").length,
+        onlyRight: filteredFileItems.filter((i) => i.state === "only-right").length,
+        equal: filteredFileItems.filter((i) => i.state === "equal").length,
+      }
+    : null;
 
   const toggleFilter = () => {
     const store = useSessionStore.getState();
@@ -518,12 +568,18 @@ export default function FolderCompareView({ session }: Props) {
           className="fc-exclude-input"
           placeholder="Exclude: *.log, node_modules"
           value={excludeInput}
-          onChange={(e) => setExcludeInput(e.target.value)}
-          data-tooltip="Exclude patterns (comma-separated)"
+          onChange={(e) => {
+            setExcludeInput(e.target.value);
+            _excludeInputCache.set(session.id, e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") doCompare();
+          }}
+          data-tooltip="Exclude patterns (comma or semicolon separated), e.g. .git, node_modules"
         />
-        {result && (
+        {filteredStats && (
           <span className="fc-stats">
-            {result.stats.modified} diff · {result.stats.onlyLeft + result.stats.onlyRight} orphan · {result.stats.equal} equal
+            {filteredStats.modified} diff · {filteredStats.onlyLeft + filteredStats.onlyRight} orphan · {filteredStats.equal} equal
           </span>
         )}
         {copyStatus && <span className="fc-copy-status">{copyStatus}</span>}
