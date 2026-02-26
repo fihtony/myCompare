@@ -27,6 +27,8 @@ const api: ElectronAPI = {
   onDropFiles: (callback) => {
     ipcRenderer.on(IPC_CHANNELS.DROP_FILES, (_event, paths) => callback(paths));
   },
+  closeAboutDialog: () => ipcRenderer.send("close-about-dialog"),
+  notifyThemeChanged: (theme: "dark" | "light") => ipcRenderer.send("theme-changed", theme),
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 };
 

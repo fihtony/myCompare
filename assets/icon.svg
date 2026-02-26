@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f1b35"/>
+      <stop offset="100%" stop-color="#1a3260"/>
+    </linearGradient>
+    <linearGradient id="leftPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="rightPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+    <clipPath id="roundedSquare">
+      <rect width="1024" height="1024" rx="224"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)"/>
+
+  <!-- Subtle grid pattern -->
+  <rect width="1024" height="1024" rx="224" fill="url(#bg)" opacity="0.9"/>
+
+  <!-- Left panel (blue) - taller, vertically centered -->
+  <rect x="88" y="232" width="340" height="560" rx="28" fill="url(#leftPanel)" filter="url(#shadow)" opacity="0.95"/>
+  <!-- Left panel header bar -->
+  <rect x="88" y="232" width="340" height="60" rx="28" fill="rgba(255,255,255,0.12)"/>
+  <rect x="88" y="260" width="340" height="32" fill="rgba(255,255,255,0.12)"/>
+  <!-- Left content lines -->
+  <rect x="120" y="332" width="200" height="14" rx="7" fill="rgba(255,255,255,0.75)"/>
+  <rect x="120" y="368" width="260" height="14" rx="7" fill="rgba(255,120,120,0.85)"/>
+  <rect x="120" y="404" width="180" height="14" rx="7" fill="rgba(255,120,120,0.85)"/>
+  <rect x="120" y="440" width="240" height="14" rx="7" fill="rgba(255,255,255,0.75)"/>
+  <rect x="120" y="476" width="160" height="14" rx="7" fill="rgba(255,120,120,0.85)"/>
+  <rect x="120" y="512" width="220" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="120" y="548" width="200" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="120" y="584" width="170" height="14" rx="7" fill="rgba(255,120,120,0.85)"/>
+  <rect x="120" y="620" width="240" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="120" y="656" width="200" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="120" y="692" width="210" height="14" rx="7" fill="rgba(255,120,120,0.85)"/>
+
+  <!-- Right panel (teal) - taller, vertically centered -->
+  <rect x="596" y="232" width="340" height="560" rx="28" fill="url(#rightPanel)" filter="url(#shadow)" opacity="0.95"/>
+  <!-- Right panel header bar -->
+  <rect x="596" y="232" width="340" height="60" rx="28" fill="rgba(255,255,255,0.12)"/>
+  <rect x="596" y="260" width="340" height="32" fill="rgba(255,255,255,0.12)"/>
+  <!-- Right content lines -->
+  <rect x="628" y="332" width="200" height="14" rx="7" fill="rgba(255,255,255,0.75)"/>
+  <rect x="628" y="368" width="240" height="14" rx="7" fill="rgba(140,255,160,0.85)"/>
+  <rect x="628" y="404" width="210" height="14" rx="7" fill="rgba(140,255,160,0.85)"/>
+  <rect x="628" y="440" width="240" height="14" rx="7" fill="rgba(255,255,255,0.75)"/>
+  <rect x="628" y="476" width="190" height="14" rx="7" fill="rgba(140,255,160,0.85)"/>
+  <rect x="628" y="512" width="220" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="628" y="548" width="200" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="628" y="584" width="260" height="14" rx="7" fill="rgba(140,255,160,0.85)"/>
+  <rect x="628" y="620" width="180" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+  <rect x="628" y="656" width="240" height="14" rx="7" fill="rgba(140,255,160,0.85)"/>
+  <rect x="628" y="692" width="200" height="14" rx="7" fill="rgba(255,255,255,0.5)"/>
+
+  <!-- Center bidirectional arrow (centered vertically on canvas) -->
+  <!-- Arrow shaft -->
+  <rect x="450" y="498" width="124" height="28" rx="14" fill="white" opacity="0.95"/>
+  <!-- Left arrowhead -->
+  <polygon points="440,512 480,474 480,550" fill="white" opacity="0.95"/>
+  <!-- Right arrowhead -->
+  <polygon points="584,512 544,474 544,550" fill="white" opacity="0.95"/>
+</svg>

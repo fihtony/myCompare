@@ -3,7 +3,11 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "node",
-    "outDir": "./dist/main"
+    "outDir": "./dist-electron",
+    "rootDir": "./src",
+    "target": "ES6",
+    "skipLibCheck": true,
+    "esModuleInterop": true
   },
   "include": ["src/main/**/*", "src/shared/**/*"]
 }

@@ -1,6 +1,8 @@
 node_modules/
+# Exclude build artifacts - dist-electron is for builds only
+dist-electron/
 dist/
-*.tsbuildinfo
+release/
 .DS_Store
 test-fixtures/
 data/

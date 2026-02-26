@@ -19,6 +19,14 @@ export default function App() {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("app-theme", theme);
+    // Notify main process of theme change
+    console.log("[App] Theme changed to:", theme);
+    if (window.electronAPI && typeof window.electronAPI.notifyThemeChanged === "function") {
+      console.log("[App] Calling notifyThemeChanged with:", theme);
+      window.electronAPI.notifyThemeChanged(theme);
+    } else {
+      console.log("[App] notifyThemeChanged not available");
+    }
   }, [theme]);
 
   useDropZone();
@@ -27,6 +35,10 @@ export default function App() {
   useEffect(() => {
     // Apply persisted theme before first render
     document.documentElement.setAttribute("data-theme", theme);
+    // Notify main process of current theme on init
+    if (window.electronAPI && typeof window.electronAPI.notifyThemeChanged === "function") {
+      window.electronAPI.notifyThemeChanged(theme);
+    }
     log("Renderer", "App initializing...");
     restore();
   }, []);

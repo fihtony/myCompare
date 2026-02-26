@@ -169,6 +169,8 @@ export interface ElectronAPI {
   gitMergeBase: (repoPath: string, ref1: string, ref2: string) => Promise<string>;
   gitIsRepo: (dirPath: string) => Promise<boolean>;
   onDropFiles: (callback: (paths: string[]) => void) => void;
+  closeAboutDialog: () => void;
+  notifyThemeChanged: (theme: "dark" | "light") => void;
   getPathForFile: (file: File) => string;
 }
 
