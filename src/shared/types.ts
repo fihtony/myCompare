@@ -92,6 +92,13 @@ export interface GitDiffItem {
   name: string;
   state: CompareState;
   type: "file" | "directory";
+  /**
+   * For a rename pair: the path of the counterpart in the OTHER ref.
+   * - On the ONLY_LEFT half:  this is the new path (exists in rightRef)
+   * - On the ONLY_RIGHT half: this is the old path (exists in leftRef)
+   * Used when double-clicking to open the before/after diff.
+   */
+  renamedCounterpart?: string;
 }
 
 export interface GitCompareResult {

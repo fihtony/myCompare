@@ -91,7 +91,9 @@ export function registerGitHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.COMPARE_GIT, async (_event, repoPath: string, leftRef: string, rightRef: string) => {
     try {
       const git = simpleGit(repoPath);
-      const diffSummary = await git.diffSummary([leftRef, rightRef]);
+      // Use --name-status -M so renamed files are reported as two separate real paths
+      // (tab-separated) instead of the abbreviated {old => new} format from --name-only.
+      const raw = await git.raw(["diff", "--name-status", "-M", leftRef, rightRef]);
       const items: GitDiffItem[] = [];
       const stats: CompareStats = {
         equal: 0,
@@ -102,32 +104,73 @@ export function registerGitHandlers(): void {
         total: 0,
       };
 
-      for (const file of diffSummary.files) {
-        let state: CompareState;
-        // Determine state from insertions/deletions
-        const isText = "insertions" in file;
-        const insertions = isText ? ((file as any).insertions as number) : 0;
-        const deletions = isText ? ((file as any).deletions as number) : 0;
-        if (insertions > 0 && deletions > 0) {
-          state = CompareState.MODIFIED;
-          stats.modified++;
-        } else if (insertions > 0 && deletions === 0) {
-          state = CompareState.ONLY_RIGHT;
-          stats.onlyRight++;
-        } else if (deletions > 0 && insertions === 0) {
-          state = CompareState.ONLY_LEFT;
-          stats.onlyLeft++;
-        } else {
-          state = CompareState.MODIFIED;
-          stats.modified++;
-        }
+      const lines = raw.trim().split("\n").filter(Boolean);
+      for (const line of lines) {
+        const parts = line.split("\t");
+        const statusCode = parts[0];
 
-        items.push({
-          relativePath: file.file,
-          name: path.basename(file.file),
-          state,
-          type: "file",
-        });
+        if (statusCode.startsWith("R") || statusCode.startsWith("C")) {
+          // Rename or Copy — parts[1] = old path (exists in leftRef), parts[2] = new path (exists in rightRef)
+          const oldPath = parts[1];
+          const newPath = parts[2];
+          if (!oldPath || !newPath) continue;
+
+          // Emit as two separate entries so each side's tree shows only paths that actually exist there.
+          // Left side: old path is "deleted" (only-left), pointing at the new path as counterpart for diff.
+          items.push({
+            relativePath: oldPath,
+            name: path.basename(oldPath),
+            state: CompareState.ONLY_LEFT,
+            type: "file",
+            renamedCounterpart: newPath,
+          });
+          stats.onlyLeft++;
+          stats.total++;
+
+          // Right side: new path is "added" (only-right), pointing at the old path as counterpart for diff.
+          items.push({
+            relativePath: newPath,
+            name: path.basename(newPath),
+            state: CompareState.ONLY_RIGHT,
+            type: "file",
+            renamedCounterpart: oldPath,
+          });
+          stats.onlyRight++;
+          stats.total++;
+        } else if (statusCode === "A") {
+          const filePath = parts[1];
+          if (!filePath) continue;
+          items.push({
+            relativePath: filePath,
+            name: path.basename(filePath),
+            state: CompareState.ONLY_RIGHT,
+            type: "file",
+          });
+          stats.onlyRight++;
+        } else if (statusCode === "D") {
+          const filePath = parts[1];
+          if (!filePath) continue;
+          items.push({
+            relativePath: filePath,
+            name: path.basename(filePath),
+            state: CompareState.ONLY_LEFT,
+            type: "file",
+          });
+          stats.onlyLeft++;
+        } else if (statusCode.startsWith("M") || statusCode.startsWith("T")) {
+          const filePath = parts[1];
+          if (!filePath) continue;
+          items.push({
+            relativePath: filePath,
+            name: path.basename(filePath),
+            state: CompareState.MODIFIED,
+            type: "file",
+          });
+          stats.modified++;
+        } else {
+          // Unknown status — skip
+          continue;
+        }
         stats.total++;
       }
 

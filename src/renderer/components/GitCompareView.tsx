@@ -38,28 +38,78 @@ function mergeState(a: string, b: string): CompareState {
 }
 
 function buildTreeItems(items: GitDiffItem[]): GitDiffItem[] {
-  const existingPaths = new Set(items.map((it) => it.relativePath));
-  const dirStateMap = new Map<string, CompareState>();
+  // Step 1: find all paths that must be directories because they appear as path prefixes of other items.
+  const impliedDirPaths = new Set<string>();
   for (const item of items) {
+    const parts = item.relativePath.split("/");
+    for (let depth = 1; depth < parts.length; depth++) {
+      impliedDirPaths.add(parts.slice(0, depth).join("/"));
+    }
+  }
+
+  // Step 2: normalize items — if a file item's path is an implied directory (e.g. a git
+  // submodule reported as a file path like "docs" while "docs/prd.md" also exists),
+  // promote it to a directory item so the tree renders it with a toggle / 📁 icon.
+  const normalizedItems: GitDiffItem[] = items.map((item) =>
+    item.type === "file" && impliedDirPaths.has(item.relativePath) ? { ...item, type: "directory" as const } : item,
+  );
+
+  // Step 3: build a state map for every ancestor directory from file items.
+  const existingDirPaths = new Set(normalizedItems.filter((it) => it.type === "directory").map((it) => it.relativePath));
+  const dirStateMap = new Map<string, CompareState>();
+  // Track which directories have children from both left and right sides for mixed-content dirs
+  const dirHasLeftChild = new Set<string>();
+  const dirHasRightChild = new Set<string>();
+
+  for (const item of normalizedItems) {
     if (item.type === "directory") continue;
+    // Build parent dirs from each item's relativePath (which is always the path that
+    // actually exists in the corresponding ref — renames are already split into two entries).
     const parts = item.relativePath.split("/");
     for (let depth = 1; depth < parts.length; depth++) {
       const dirPath = parts.slice(0, depth).join("/");
       dirStateMap.set(dirPath, mergeState(dirStateMap.get(dirPath) ?? CompareState.EQUAL, item.state));
+      // Track left/right children for each directory
+      if (item.state === CompareState.ONLY_LEFT) {
+        dirHasLeftChild.add(dirPath);
+      } else if (item.state === CompareState.ONLY_RIGHT) {
+        dirHasRightChild.add(dirPath);
+      }
     }
   }
+
+  // Step 4: merge child-derived state back into promoted directory items so their color is accurate.
+  // If a directory has both left and right children, mark it as MODIFIED (exists on both sides but differs).
+  const mergedItems: GitDiffItem[] = normalizedItems.map((item) => {
+    if (item.type === "directory" && dirStateMap.has(item.relativePath)) {
+      let derivedState = dirStateMap.get(item.relativePath)!;
+      // If dir has children on both sides, it's modified (exists in both refs but content differs)
+      if (dirHasLeftChild.has(item.relativePath) && dirHasRightChild.has(item.relativePath)) {
+        derivedState = CompareState.MODIFIED;
+      }
+      return { ...item, state: mergeState(item.state, derivedState) };
+    }
+    return item;
+  });
+
+  // Step 5: synthesize directory nodes that have no corresponding item yet.
   const synthDirs: GitDiffItem[] = [];
   for (const [dirPath, state] of dirStateMap) {
-    if (!existingPaths.has(dirPath)) {
+    if (!existingDirPaths.has(dirPath)) {
+      let finalState = state;
+      // If synthesized dir has both left and right children, it's modified
+      if (dirHasLeftChild.has(dirPath) && dirHasRightChild.has(dirPath)) {
+        finalState = CompareState.MODIFIED;
+      }
       synthDirs.push({
         relativePath: dirPath,
         name: dirPath.split("/").pop() || dirPath,
-        state,
+        state: finalState,
         type: "directory",
       } as GitDiffItem);
     }
   }
-  return [...synthDirs, ...items].sort((a, b) => {
+  return [...synthDirs, ...mergedItems].sort((a, b) => {
     const ap = a.relativePath.split("/");
     const bp = b.relativePath.split("/");
     const minLen = Math.min(ap.length, bp.length);
@@ -130,25 +180,35 @@ export default function GitCompareView({ session }: Props) {
     [setCollapsedDirs],
   );
 
+  const expandAll = useCallback(() => setCollapsedDirs(new Set()), [setCollapsedDirs]);
+
   const collapseAll = useCallback(() => {
     if (!result) return;
+    const builtItems = buildTreeItems(result.items as unknown as GitDiffItem[]);
     const dirs = new Set<string>();
-    for (const item of result.items) {
-      const gi = item as unknown as GitDiffItem;
-      const parts = gi.relativePath.split("/");
-      for (let d = 1; d < parts.length; d++) dirs.add(parts.slice(0, d).join("/"));
-      if (gi.type === "directory") dirs.add(gi.relativePath);
+    for (const item of builtItems) {
+      if (item.type === "directory") {
+        dirs.add(item.relativePath);
+      }
     }
     setCollapsedDirs(dirs);
   }, [result, setCollapsedDirs]);
 
-  const expandAll = useCallback(() => setCollapsedDirs(new Set()), [setCollapsedDirs]);
-
+  // Auto-collapse all directories when result changes; based on actual treeItems (incl. synthesized/promoted dirs)
   useEffect(() => {
     if (!result || _gcAutoCollapsed.has(session.id)) return;
     _gcAutoCollapsed.add(session.id);
-    collapseAll();
-  }, [result, session.id, collapseAll]);
+
+    // Rebuild treeItems here to get accurate directory list (incl. promoted from files + synthetic dirs)
+    const builtItems = buildTreeItems(result.items as unknown as GitDiffItem[]);
+    const dirs = new Set<string>();
+    for (const item of builtItems) {
+      if (item.type === "directory") {
+        dirs.add(item.relativePath);
+      }
+    }
+    setCollapsedDirs(dirs);
+  }, [result, session.id, setCollapsedDirs]);
 
   // Auto-compare when both refs are selected
   useEffect(() => {
@@ -226,10 +286,25 @@ export default function GitCompareView({ session }: Props) {
     if (openingFile === item.relativePath) return;
     setOpeningFile(item.relativePath);
     try {
-      const leftTmp =
-        item.state !== CompareState.ONLY_RIGHT ? await window.electronAPI.gitExtractFile(repoPath, leftRef, item.relativePath) : "";
-      const rightTmp =
-        item.state !== CompareState.ONLY_LEFT ? await window.electronAPI.gitExtractFile(repoPath, rightRef, item.relativePath) : "";
+      let leftFilePath: string;
+      let rightFilePath: string;
+
+      if (item.state === CompareState.ONLY_LEFT) {
+        // File exists only in leftRef. If it's a rename pair, its counterpart (new path) is in rightRef.
+        leftFilePath = item.relativePath;
+        rightFilePath = item.renamedCounterpart ?? "";
+      } else if (item.state === CompareState.ONLY_RIGHT) {
+        // File exists only in rightRef. If it's a rename pair, its counterpart (old path) is in leftRef.
+        leftFilePath = item.renamedCounterpart ?? "";
+        rightFilePath = item.relativePath;
+      } else {
+        // Modified — same path on both sides.
+        leftFilePath = item.relativePath;
+        rightFilePath = item.relativePath;
+      }
+
+      const leftTmp = leftFilePath ? await window.electronAPI.gitExtractFile(repoPath, leftRef, leftFilePath) : "";
+      const rightTmp = rightFilePath ? await window.electronAPI.gitExtractFile(repoPath, rightRef, rightFilePath) : "";
       createFileSession(leftTmp, rightTmp, session.id);
     } catch (err: unknown) {
       setErrorMsg(`Failed to extract file: ${(err as Error).message}`);
@@ -384,6 +459,13 @@ export default function GitCompareView({ session }: Props) {
                 const indentStyle = { paddingLeft: `${depth * 16}px` };
                 const isOpening = !isDir && openingFile === item.relativePath;
                 const colorStyle = { color: stateColors[item.state] };
+                // For a rename pair show a hint in the tooltip
+                const renameHint = item.renamedCounterpart
+                  ? onlyLeft
+                    ? `\n→ renamed to: ${item.renamedCounterpart}`
+                    : `\n← renamed from: ${item.renamedCounterpart}`
+                  : "";
+                const rowTitle = isDir ? "Click to toggle" : `${item.relativePath}${renameHint}\n(Double-click to open diff)`;
 
                 return (
                   <div
@@ -391,7 +473,7 @@ export default function GitCompareView({ session }: Props) {
                     className={"gc-tree-row" + (isDir ? " gc-row-dir" : "") + (isOpening ? " gc-row-opening" : "")}
                     onClick={isDir ? () => toggleCollapse(item.relativePath) : undefined}
                     onDoubleClick={() => handleDoubleClick(item)}
-                    title={isDir ? "Click to toggle" : "Double-click to open diff"}
+                    title={rowTitle}
                   >
                     {/* Left name */}
                     <div className="gc-name-cell" style={indentStyle}>
@@ -414,7 +496,7 @@ export default function GitCompareView({ session }: Props) {
                       )}
                     </div>
 
-                    {/* Center icon — blank for orphan */}
+                    {/* Center icon */}
                     <span className="gc-col-cmp" style={colorStyle}>
                       {isOrphan ? "" : stateIcons[item.state] || "?"}
                     </span>
