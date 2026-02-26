@@ -170,7 +170,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  font-weight: 500;
 }
 
 /* Center comparison icon column */
@@ -209,3 +210,4 @@
   font-size: var(--font-size-sm);
   min-width: 80px;
   max-width: 120px;
+}
