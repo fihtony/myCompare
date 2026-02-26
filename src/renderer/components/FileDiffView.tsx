@@ -326,7 +326,7 @@ export default function FileDiffView({ session }: Props) {
       setRightPath(session.rightPath);
       loadAndCompare(session.leftPath, session.rightPath);
     }
-  }, [session.leftPath, session.rightPath]);
+  }, [session.leftPath, session.rightPath, loadAndCompare]);
 
   // Ctrl+Z / Cmd+Z undo
   useEffect(() => {
@@ -473,12 +473,18 @@ export default function FileDiffView({ session }: Props) {
 
   const handleSelectLeft = async () => {
     const p = await window.electronAPI.dialogSelectFile();
-    if (p) setLeftPath(p);
+    if (p) {
+      setLeftPath(p);
+      loadAndCompare(p, rightPath);
+    }
   };
 
   const handleSelectRight = async () => {
     const p = await window.electronAPI.dialogSelectFile();
-    if (p) setRightPath(p);
+    if (p) {
+      setRightPath(p);
+      loadAndCompare(leftPath, p);
+    }
   };
 
   const handleSaveLeft = async () => {
@@ -828,6 +834,12 @@ export default function FileDiffView({ session }: Props) {
             type="text"
             value={leftPath}
             onChange={(e) => setLeftPath(e.target.value)}
+            onBlur={() => {
+              if (leftPath && rightPath) loadAndCompare(leftPath, rightPath);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && leftPath && rightPath) loadAndCompare(leftPath, rightPath);
+            }}
             placeholder="Left file…"
             className="fd-path-input"
           />
@@ -853,6 +865,12 @@ export default function FileDiffView({ session }: Props) {
             type="text"
             value={rightPath}
             onChange={(e) => setRightPath(e.target.value)}
+            onBlur={() => {
+              if (leftPath && rightPath) loadAndCompare(leftPath, rightPath);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && leftPath && rightPath) loadAndCompare(leftPath, rightPath);
+            }}
             placeholder="Right file…"
             className="fd-path-input"
           />

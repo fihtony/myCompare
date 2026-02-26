@@ -150,6 +150,14 @@ export default function GitCompareView({ session }: Props) {
     collapseAll();
   }, [result, session.id, collapseAll]);
 
+  // Auto-compare when both refs are selected
+  useEffect(() => {
+    if (repoPath && leftRef && rightRef) {
+      doCompare();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leftRef, rightRef]);
+
   const loadRefs = useCallback(async (rp: string) => {
     if (!rp) return;
     setRefsLoading(true);
