@@ -97,12 +97,21 @@ export default function FileDiffView({ session }: Props) {
   const editingCellRef = useRef<{ idx: number; side: "left" | "right"; text: string } | null>(null);
   /** Debounce timer for on-input live diff recompute. */
   const inputTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Stores the mousedown coordinates so we can restore caret position after activating edit. */
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   /** Rows selected via line-number clicks for bulk copy. */
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   /** Last row index clicked (for Shift+click range selection). */
   const lastClickedRowRef = useRef<number | null>(null);
   /** Tracks active mouse-drag row selection (start row + whether button is held). */
   const dragSelectRef = useRef<{ active: boolean; startIdx: number } | null>(null);
+  /** Ref to the fd-diff-table element — used for text-selection side isolation. */
+  const tableDivRef = useRef<HTMLDivElement>(null);
+  /**
+   * Which cell is currently in edit mode. Only this cell gets contentEditable="plaintext-only";
+   * all others are plain read-only divs, which allows native multi-row text selection.
+   */
+  const [activeEditCell, setActiveEditCell] = useState<{ idx: number; side: "left" | "right" } | null>(null);
 
   /** True when only one side has a file (orphan from folder compare). */
   const isOrphanMode = !leftPath || !rightPath;
@@ -335,6 +344,105 @@ export default function FileDiffView({ session }: Props) {
       _dirtyFileSessions.delete(session.id);
     };
   }, [leftDirty, rightDirty, session.id]);
+
+  // Auto-focus and place caret in the cell that just became active for editing.
+  useEffect(() => {
+    if (!activeEditCell) return;
+    const id = `cell-${activeEditCell.idx}-${activeEditCell.side === "left" ? "l" : "r"}`;
+    // Use setTimeout so React has flushed the contentEditable attribute to the DOM.
+    const timer = setTimeout(() => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.focus();
+      // Restore caret to where the user clicked (caretRangeFromPoint is Chromium-specific).
+      const pos = mouseDownPosRef.current;
+      if (pos) {
+        const caretRange = (document as any).caretRangeFromPoint?.(pos.x, pos.y) as Range | null;
+        if (caretRange && el.contains(caretRange.startContainer)) {
+          const sel = window.getSelection();
+          sel?.removeAllRanges();
+          sel?.addRange(caretRange);
+          return;
+        }
+      }
+      // Fallback: place caret at end.
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [activeEditCell]);
+
+  /**
+   * Mark which column (left/right) the user has started a text-selection drag on.
+   * Adds a CSS class to the table that hides the opposite column from selection,
+   * preventing the browser selection from jumping across to the other side.
+   */
+  const startTextSelect = useCallback((side: "left" | "right") => {
+    const el = tableDivRef.current;
+    if (!el) return;
+    el.classList.remove("fd-selecting-left", "fd-selecting-right");
+    el.classList.add(`fd-selecting-${side}`);
+  }, []);
+
+  // Cross-line text selection: intercept Ctrl+C to produce clean multi-line text
+  // (without line-number / button artifacts) when the user drags across rows.
+  useEffect(() => {
+    const handleCopy = (e: ClipboardEvent) => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+      const tableEl = tableDivRef.current;
+      if (!tableEl) return;
+
+      const isSelectingLeft = tableEl.classList.contains("fd-selecting-left");
+      const isSelectingRight = tableEl.classList.contains("fd-selecting-right");
+      if (!isSelectingLeft && !isSelectingRight) return;
+
+      const range = sel.getRangeAt(0);
+      if (!tableEl.contains(range.commonAncestorContainer)) return;
+
+      const sideClass = isSelectingLeft ? ".fd-line-left" : ".fd-line-right";
+      const cells = Array.from(tableEl.querySelectorAll(sideClass)) as HTMLElement[];
+
+      const lines: string[] = [];
+      for (const cell of cells) {
+        const cellRange = document.createRange();
+        cellRange.selectNodeContents(cell);
+        try {
+          // Skip cell if the selection ends before it starts
+          if (range.compareBoundaryPoints(Range.END_TO_START, cellRange) <= 0) continue;
+          // Stop scanning if the selection starts after cell ends
+          if (range.compareBoundaryPoints(Range.START_TO_END, cellRange) >= 0) break;
+        } catch {
+          continue;
+        }
+        // Clip the selection range to this cell's bounds
+        const intersect = range.cloneRange();
+        try {
+          if (range.compareBoundaryPoints(Range.START_TO_START, cellRange) < 0)
+            intersect.setStart(cellRange.startContainer, cellRange.startOffset);
+          if (range.compareBoundaryPoints(Range.END_TO_END, cellRange) > 0) intersect.setEnd(cellRange.endContainer, cellRange.endOffset);
+        } catch {
+          lines.push(cell.textContent ?? "");
+          continue;
+        }
+        lines.push(intersect.toString());
+      }
+
+      if (lines.length > 0) {
+        e.preventDefault();
+        e.clipboardData?.setData("text/plain", lines.join("\n"));
+      }
+    };
+
+    document.addEventListener("copy", handleCopy);
+    return () => {
+      document.removeEventListener("copy", handleCopy);
+    };
+  }, []);
 
   const handleCompare = () => {
     updateSession(session.id, { leftPath, rightPath } as any);
@@ -797,7 +905,7 @@ export default function FileDiffView({ session }: Props) {
                 );
               }}
             >
-              <div className={"fd-diff-table" + (isOrphanMode ? " fd-orphan-mode" : "")} key={tableKey}>
+              <div ref={tableDivRef} className={"fd-diff-table" + (isOrphanMode ? " fd-orphan-mode" : "")} key={tableKey}>
                 {diffLines.map((line, i) => {
                   const isModified = line.type === "modified" || line.type === "whitespace";
                   const isWhitespace = line.type === "whitespace";
@@ -819,14 +927,16 @@ export default function FileDiffView({ session }: Props) {
 
                   // Build HTML for a cell, handling whitespace-visible chars in whitespace-type rows
                   const renderCellHtml = (text: string, spans: typeof line.leftSpans, isLeft: boolean) => {
-                    // While the user is actively typing in this cell, return the raw escaped text so
-                    // React won't update the innerHTML (which would reset the cursor position).
+                    // While the user is actively typing in this cell, return plain escaped text.
+                    // Using `text` (= line.leftText/rightText, stable within a render cycle) rather
+                    // than editingCellRef.current.text means React sees the same __html string as
+                    // the previous render → skips the DOM update → cursor position is preserved.
                     if (
                       editingCellRef.current &&
                       editingCellRef.current.idx === i &&
                       editingCellRef.current.side === (isLeft ? "left" : "right")
                     ) {
-                      return escapeHtml(editingCellRef.current.text);
+                      return escapeHtml(text);
                     }
                     if (isWhitespace && spans) {
                       return spans
@@ -859,8 +969,8 @@ export default function FileDiffView({ session }: Props) {
                       data-row-idx={i}
                       className={`fd-diff-row fd-diff-${line.type}${i === currentDiffIdx ? " fd-diff-active" : ""}${isGroupFirst ? " fd-group-first" : ""}${isGroupLast ? " fd-group-last" : ""}${isRowSelected ? " fd-row-selected" : ""}`}
                       onMouseDown={(e) => {
-                        // Don't intercept clicks inside contentEditable cells
-                        if ((e.target as Element).closest("[contenteditable]")) return;
+                        // Clicks inside a text cell start native text selection — don't activate row-drag-select.
+                        if ((e.target as Element).closest(".fd-line-text")) return;
                         if (line.type === "equal") return;
                         e.preventDefault();
                         dragSelectRef.current = { active: true, startIdx: i };
@@ -877,13 +987,32 @@ export default function FileDiffView({ session }: Props) {
                         {line.leftLineNo ?? ""}
                       </span>
 
-                      {/* Left text — contentEditable for inline editing */}
+                      {/* Left text — double-click to edit; plain div otherwise so native multi-row selection works */}
                       <div
                         key={`${tableKey}-${i}-l`}
-                        className={`fd-line-text fd-line-left${isModified ? " fd-line-modified-left" : ""}`}
-                        contentEditable={canEditLeft ? "plaintext-only" : undefined}
+                        id={`cell-${i}-l`}
+                        className={`fd-line-text fd-line-left${isModified ? " fd-line-modified-left" : ""}${activeEditCell?.idx === i && activeEditCell?.side === "left" ? " fd-cell-editing" : ""}`}
+                        contentEditable={
+                          canEditLeft && activeEditCell?.idx === i && activeEditCell?.side === "left" ? "plaintext-only" : undefined
+                        }
                         suppressContentEditableWarning
                         spellCheck={false}
+                        title={canEditLeft && !(activeEditCell?.idx === i && activeEditCell?.side === "left") ? "Click to edit" : undefined}
+                        onMouseDown={(e) => {
+                          mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+                        }}
+                        onMouseEnter={(e) => {
+                          if (e.buttons === 0) startTextSelect("left");
+                        }}
+                        onClick={
+                          canEditLeft
+                            ? () => {
+                                // Only activate editing if this was a plain click, not a drag selection.
+                                const sel = window.getSelection();
+                                if (!sel || sel.isCollapsed) setActiveEditCell({ idx: i, side: "left" });
+                              }
+                            : undefined
+                        }
                         onFocus={
                           canEditLeft
                             ? () => {
@@ -894,14 +1023,10 @@ export default function FileDiffView({ session }: Props) {
                         onInput={
                           canEditLeft
                             ? (e) => {
-                                const text = e.currentTarget.textContent ?? "";
-                                if (editingCellRef.current) editingCellRef.current.text = text;
-                                if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
-                                inputTimerRef.current = setTimeout(() => {
-                                  if (editingCellRef.current?.idx === i && editingCellRef.current.side === "left") {
-                                    handleInlineEditSoft("left", i, text);
-                                  }
-                                }, 150);
+                                // Only track the text in the ref; do NOT trigger any state update
+                                // during typing — that would cause React to replace innerHTML and
+                                // reset the cursor position.
+                                if (editingCellRef.current) editingCellRef.current.text = e.currentTarget.textContent ?? "";
                               }
                             : undefined
                         }
@@ -911,6 +1036,7 @@ export default function FileDiffView({ session }: Props) {
                                 const newText = e.currentTarget.textContent ?? "";
                                 editingCellRef.current = null;
                                 if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
+                                setActiveEditCell(null);
                                 if (newText !== line.leftText) handleInlineEdit("left", i, newText);
                               }
                             : undefined
@@ -977,13 +1103,33 @@ export default function FileDiffView({ session }: Props) {
                         {line.rightLineNo ?? ""}
                       </span>
 
-                      {/* Right text — contentEditable for inline editing */}
+                      {/* Right text — double-click to edit; plain div otherwise so native multi-row selection works */}
                       <div
                         key={`${tableKey}-${i}-r`}
-                        className={`fd-line-text fd-line-right${isModified ? " fd-line-modified-right" : ""}`}
-                        contentEditable={canEditRight ? "plaintext-only" : undefined}
+                        id={`cell-${i}-r`}
+                        className={`fd-line-text fd-line-right${isModified ? " fd-line-modified-right" : ""}${activeEditCell?.idx === i && activeEditCell?.side === "right" ? " fd-cell-editing" : ""}`}
+                        contentEditable={
+                          canEditRight && activeEditCell?.idx === i && activeEditCell?.side === "right" ? "plaintext-only" : undefined
+                        }
                         suppressContentEditableWarning
                         spellCheck={false}
+                        title={
+                          canEditRight && !(activeEditCell?.idx === i && activeEditCell?.side === "right") ? "Click to edit" : undefined
+                        }
+                        onMouseDown={(e) => {
+                          mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+                        }}
+                        onMouseEnter={(e) => {
+                          if (e.buttons === 0) startTextSelect("right");
+                        }}
+                        onClick={
+                          canEditRight
+                            ? () => {
+                                const sel = window.getSelection();
+                                if (!sel || sel.isCollapsed) setActiveEditCell({ idx: i, side: "right" });
+                              }
+                            : undefined
+                        }
                         onFocus={
                           canEditRight
                             ? () => {
@@ -994,14 +1140,7 @@ export default function FileDiffView({ session }: Props) {
                         onInput={
                           canEditRight
                             ? (e) => {
-                                const text = e.currentTarget.textContent ?? "";
-                                if (editingCellRef.current) editingCellRef.current.text = text;
-                                if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
-                                inputTimerRef.current = setTimeout(() => {
-                                  if (editingCellRef.current?.idx === i && editingCellRef.current.side === "right") {
-                                    handleInlineEditSoft("right", i, text);
-                                  }
-                                }, 150);
+                                if (editingCellRef.current) editingCellRef.current.text = e.currentTarget.textContent ?? "";
                               }
                             : undefined
                         }
@@ -1011,6 +1150,7 @@ export default function FileDiffView({ session }: Props) {
                                 const newText = e.currentTarget.textContent ?? "";
                                 editingCellRef.current = null;
                                 if (inputTimerRef.current) clearTimeout(inputTimerRef.current);
+                                setActiveEditCell(null);
                                 if (newText !== line.rightText) handleInlineEdit("right", i, newText);
                               }
                             : undefined

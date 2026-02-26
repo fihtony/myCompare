@@ -110,9 +110,31 @@
   user-select: none;
 }
 
-/* Re-enable text selection inside editable cells */
-.fd-diff-table [contenteditable] {
-  user-select: text;
+/* When a drag starts on one column, disable selection in the other so the
+   browser selection stays within the intended side. */
+.fd-diff-table.fd-selecting-left .fd-line-right,
+.fd-diff-table.fd-selecting-right .fd-line-left {
+  user-select: none !important;
+}
+
+/* Chromium still visually highlights user-select:none nodes that fall within
+   the selection range. Use a transparent ::selection background to hide it. */
+.fd-diff-table.fd-selecting-left .fd-line-right::selection,
+.fd-diff-table.fd-selecting-left .fd-line-right *::selection {
+  background-color: transparent;
+}
+.fd-diff-table.fd-selecting-right .fd-line-left::selection,
+.fd-diff-table.fd-selecting-right .fd-line-left *::selection {
+  background-color: transparent;
+}
+
+/* Also suppress visual selection on structural elements (line numbers, copy
+   buttons, gutter) that are never targeted by text selection. */
+.fd-diff-table .fd-line-no::selection,
+.fd-diff-table .fd-copy-col::selection,
+.fd-diff-table .fd-copy-col *::selection,
+.fd-diff-table .fd-gutter::selection {
+  background-color: transparent;
 }
 
 .fd-diff-row {
@@ -301,11 +323,19 @@ mark.fd-char-ws {
   overflow: hidden;
   outline: none;
   cursor: text;
+  user-select: text;
 }
 .fd-line-text:focus {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
   overflow: auto;
+}
+
+/* Active edit cell: render a prominent border so it's clear the cell is in edit mode */
+.fd-cell-editing {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -2px;
+  cursor: text;
 }
 
 /* Dirty indicator — small red asterisk after the path input */
