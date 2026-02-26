@@ -9,16 +9,30 @@
   height: 38px;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
+  position: relative;
 }
 
 .app-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+.app-theme-btn {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 14px !important;
+  opacity: 0.7;
+}
+.app-theme-btn:hover {
+  opacity: 1;
 }
 
 .app-content {

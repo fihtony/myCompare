@@ -85,8 +85,10 @@
 
 .tab-actions {
   position: relative;
-  padding: 0 8px;
+  padding: 0 0 0 8px;
+  margin-right: 8px;
   flex-shrink: 0;
+  margin-left: auto;
 }
 
 .tab-new-btn {

@@ -29,7 +29,96 @@
   --diff-modified-line: rgba(200, 120, 30, 0.45);
   --diff-char-del: #a01515;
   --diff-char-ins: #1a7a1a;
+}
 
+/* ── Light theme overrides ─────────────────────────────────────── */
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f3f3f3;
+  --bg-tertiary: #f8f8f8;
+  --bg-hover: #e8e8e8;
+  --bg-active: #c7e0f4;
+  --text-primary: #111111;
+  --text-secondary: #2d2d2d;
+  --text-muted: #555555;
+  --border-color: #c0c0c0;
+  --accent: #005fa3;
+  --accent-hover: #004f8a;
+
+  --state-equal: #2d2d2d;
+  --state-modified: #9a1e1e;
+  --state-only-left: #5c1080;
+  --state-only-right: #5c1080;
+  --state-binary: #015799;
+  --state-whitespace: #555555;
+  --state-error: #b34000;
+
+  --diff-added-bg: rgba(20, 110, 40, 0.13);
+  --diff-removed-bg: rgba(180, 30, 30, 0.13);
+  --diff-modified-bg: rgba(180, 30, 30, 0.09);
+  --diff-added-line: rgba(20, 110, 40, 0.28);
+  --diff-removed-line: rgba(180, 30, 30, 0.28);
+  --diff-modified-line: rgba(160, 90, 0, 0.32);
+  --diff-char-del: #8b0000;
+  --diff-char-ins: #0a3d0a;
+}
+
+/* Tooltip: invert colours in light theme */
+[data-theme="light"] [data-tooltip]:hover::after {
+  background: #ffffff;
+  color: #1e1e1e;
+  border-color: #d4d4d4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* highlight.js light overrides (github-like) */
+[data-theme="light"] .hljs {
+  background: #f6f8fa !important;
+  color: #111111 !important;
+}
+[data-theme="light"] .hljs-comment,
+[data-theme="light"] .hljs-quote {
+  color: #4a5568 !important;
+}
+[data-theme="light"] .hljs-keyword,
+[data-theme="light"] .hljs-selector-tag,
+[data-theme="light"] .hljs-deletion {
+  color: #a0001a !important;
+}
+[data-theme="light"] .hljs-string,
+[data-theme="light"] .hljs-attr,
+[data-theme="light"] .hljs-addition {
+  color: #002d6e !important;
+}
+[data-theme="light"] .hljs-number,
+[data-theme="light"] .hljs-literal,
+[data-theme="light"] .hljs-link {
+  color: #004499 !important;
+}
+[data-theme="light"] .hljs-built_in,
+[data-theme="light"] .hljs-class {
+  color: #8a3800 !important;
+}
+[data-theme="light"] .hljs-function,
+[data-theme="light"] .hljs-title {
+  color: #4e1fa0 !important;
+}
+[data-theme="light"] .hljs-type,
+[data-theme="light"] .hljs-variable,
+[data-theme="light"] .hljs-template-variable {
+  color: #8a3800 !important;
+}
+[data-theme="light"] .hljs-params,
+[data-theme="light"] .hljs-punctuation {
+  color: #111111 !important;
+}
+[data-theme="light"] .hljs-meta {
+  color: #005cc5 !important;
+  font-weight: bold;
+}
+
+/* \u2500\u2500 Shared layout & spacing tokens (theme-independent) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500 */
+:root {
   --toolbar-height: 36px;
   --tab-height: 32px;
   --spacing-xs: 4px;

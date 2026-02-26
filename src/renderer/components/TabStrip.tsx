@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { useSessionStore } from "../store/session-store";
 import { _dirtyFileSessions } from "./FileDiffView";
 import { log } from "../../shared/logger";
@@ -8,6 +8,18 @@ export default function TabStrip() {
   const { sessions, activeSessionId, setActiveSession, closeSession } = useSessionStore();
   const [showNewMenu, setShowNewMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss the "+" menu when clicking outside
+  useEffect(() => {
+    if (!showNewMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowNewMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showNewMenu]);
 
   const handleNewSession = (type: "folder" | "file" | "git") => {
     log("UI", `User action: Creating new ${type} session via + button`);

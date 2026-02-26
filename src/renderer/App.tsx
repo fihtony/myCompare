@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useSessionStore } from "./store/session-store";
 import TabStrip from "./components/TabStrip";
 import SessionContent from "./components/SessionContent";
@@ -12,10 +12,21 @@ export default function App() {
   const { sessions, activeSessionId, restore } = useSessionStore();
   const activeSession = sessions.find((s) => s.id === activeSessionId);
 
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    return (localStorage.getItem("app-theme") as "dark" | "light") || "dark";
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("app-theme", theme);
+  }, [theme]);
+
   useDropZone();
   useKeyboardShortcuts();
 
   useEffect(() => {
+    // Apply persisted theme before first render
+    document.documentElement.setAttribute("data-theme", theme);
     log("Renderer", "App initializing...");
     restore();
   }, []);
@@ -39,6 +50,14 @@ export default function App() {
     <div className="app-container">
       <div className="app-titlebar drag-region">
         <span className="app-title no-drag">MaCompare</span>
+        <button
+          className="icon-btn app-theme-btn no-drag"
+          onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          data-tooltip={theme === "dark" ? "Switch to Light Theme" : "Switch to Dark Theme"}
+          aria-label="Toggle theme"
+        >
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
       </div>
       <TabStrip />
       <div className="app-content">{activeSession ? <SessionContent session={activeSession} /> : <EmptyState />}</div>
