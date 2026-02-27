@@ -171,6 +171,7 @@ export interface ElectronAPI {
   onDropFiles: (callback: (paths: string[]) => void) => void;
   closeAboutDialog: () => void;
   notifyThemeChanged: (theme: "dark" | "light") => void;
+  onFolderCompareProgress: (callback: (data: { processed: number; done?: boolean }) => void) => () => void;
   getPathForFile: (file: File) => string;
 }
 

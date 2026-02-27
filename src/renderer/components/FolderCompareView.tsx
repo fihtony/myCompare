@@ -11,6 +11,160 @@ const _showHiddenCache = new Map<string, boolean>();
 const _scrollCache = new Map<string, number>();
 const _excludeInputCache = new Map<string, string>();
 
+// ─── Global ignore patterns (shared across all folder sessions) ────────────
+
+const PREDEFINED_IGNORES: { pattern: string; label: string; category: string }[] = [
+  // Version control
+  { pattern: ".git", label: ".git", category: "Version Control" },
+  { pattern: ".svn", label: ".svn", category: "Version Control" },
+  { pattern: ".hg", label: ".hg", category: "Version Control" },
+  // JS/Node
+  { pattern: "node_modules", label: "node_modules", category: "JavaScript / Node" },
+  { pattern: ".pnp", label: ".pnp", category: "JavaScript / Node" },
+  // Python
+  { pattern: "venv", label: "venv", category: "Python" },
+  { pattern: ".venv", label: ".venv", category: "Python" },
+  { pattern: "__pycache__", label: "__pycache__", category: "Python" },
+  { pattern: ".pytest_cache", label: ".pytest_cache", category: "Python" },
+  // Build outputs
+  { pattern: "dist", label: "dist", category: "Build Output" },
+  { pattern: "build", label: "build", category: "Build Output" },
+  { pattern: "out", label: "out", category: "Build Output" },
+  { pattern: "target", label: "target", category: "Build Output" },
+  { pattern: "bin", label: "bin", category: "Build Output" },
+  { pattern: "obj", label: "obj", category: "Build Output" },
+  // IDEs
+  { pattern: ".idea", label: ".idea", category: "IDE" },
+  { pattern: ".vscode", label: ".vscode", category: "IDE" },
+  // Caches & coverage
+  { pattern: ".cache", label: ".cache", category: "Cache" },
+  { pattern: "coverage", label: "coverage", category: "Cache" },
+  { pattern: ".nyc_output", label: ".nyc_output", category: "Cache" },
+  { pattern: ".gradle", label: ".gradle", category: "Cache" },
+  // Platform
+  { pattern: ".DS_Store", label: ".DS_Store", category: "Platform" },
+  { pattern: "Thumbs.db", label: "Thumbs.db", category: "Platform" },
+  // Package managers
+  { pattern: "vendor", label: "vendor (PHP/Go)", category: "Packages" },
+  { pattern: "Pods", label: "Pods (iOS)", category: "Packages" },
+  // Infrastructure
+  { pattern: ".terraform", label: ".terraform", category: "Infrastructure" },
+];
+
+const DEFAULT_ACTIVE_IGNORES = [".git", "node_modules"];
+
+function loadGlobalIgnores(): string[] {
+  try {
+    const saved = localStorage.getItem("fc-global-ignores");
+    if (saved !== null) return JSON.parse(saved) as string[];
+  } catch {}
+  return [...DEFAULT_ACTIVE_IGNORES];
+}
+
+function saveGlobalIgnores(patterns: string[]): void {
+  localStorage.setItem("fc-global-ignores", JSON.stringify(patterns));
+}
+
+// Module-level reactive store for global ignores
+let _globalIgnorePatterns: string[] = loadGlobalIgnores();
+const _globalIgnoreListeners = new Set<() => void>();
+
+function getGlobalIgnorePatterns(): string[] {
+  return _globalIgnorePatterns;
+}
+
+function setGlobalIgnorePatterns(patterns: string[]): void {
+  _globalIgnorePatterns = patterns;
+  saveGlobalIgnores(patterns);
+  _globalIgnoreListeners.forEach((cb) => cb());
+}
+
+function useGlobalIgnores(): [string[], (p: string[]) => void] {
+  const [patterns, setPatterns] = useState<string[]>(_globalIgnorePatterns);
+  useEffect(() => {
+    const cb = () => setPatterns([..._globalIgnorePatterns]);
+    _globalIgnoreListeners.add(cb);
+    return () => {
+      _globalIgnoreListeners.delete(cb);
+    };
+  }, []);
+  return [patterns, setGlobalIgnorePatterns];
+}
+
+// ─── Preset Ignore Modal ───────────────────────────────────────────────────
+
+interface PresetIgnoreModalProps {
+  onClose: () => void;
+}
+
+function PresetIgnoreModal({ onClose }: PresetIgnoreModalProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(_globalIgnorePatterns));
+
+  const toggle = (pattern: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(pattern) ? next.delete(pattern) : next.add(pattern);
+      return next;
+    });
+  };
+
+  const handleApply = () => {
+    setGlobalIgnorePatterns([...selected]);
+    onClose();
+  };
+
+  // Group patterns by category
+  const categories = Array.from(new Set(PREDEFINED_IGNORES.map((p) => p.category)));
+
+  return (
+    <div className="fc-modal-overlay" onClick={onClose}>
+      <div className="fc-modal-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="fc-modal-header">
+          <span>Global Ignore Patterns</span>
+          <button className="fc-modal-close" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="fc-modal-desc-text">
+          These patterns are excluded at the backend level across all folder comparison sessions. Changing these triggers a refresh.
+        </div>
+        <div className="fc-modal-body">
+          {categories.map((cat) => (
+            <div key={cat} className="fc-modal-category">
+              <div className="fc-modal-cat-label">{cat}</div>
+              <div className="fc-modal-items">
+                {PREDEFINED_IGNORES.filter((p) => p.category === cat).map((p) => (
+                  <label key={p.pattern} className="fc-modal-item">
+                    <input type="checkbox" checked={selected.has(p.pattern)} onChange={() => toggle(p.pattern)} />
+                    <code className="fc-modal-pattern">{p.label}</code>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="fc-modal-footer">
+          <button className="fc-modal-btn" onClick={() => setSelected(new Set())}>
+            Clear All
+          </button>
+          <button className="fc-modal-btn" onClick={() => setSelected(new Set(PREDEFINED_IGNORES.map((p) => p.pattern)))}>
+            Select All
+          </button>
+          <div style={{ flex: 1 }} />
+          <button className="fc-modal-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="fc-modal-btn fc-modal-btn-primary" onClick={handleApply}>
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Props and helpers ─────────────────────────────────────────────────────
+
 interface Props {
   session: FolderSession;
 }
@@ -141,6 +295,9 @@ export default function FolderCompareView({ session }: Props) {
   const [leftPath, setLeftPath] = useState(session.leftPath);
   const [rightPath, setRightPath] = useState(session.rightPath);
   const [excludeInput, setExcludeInput] = useState(() => _excludeInputCache.get(session.id) ?? session.excludePatterns.join(", "));
+  const [showIgnoreModal, setShowIgnoreModal] = useState(false);
+  const [progress, setProgress] = useState<{ processed: number; done: boolean } | null>(null);
+  const [globalIgnorePatterns] = useGlobalIgnores();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [collapsedDirs, _setCollapsedDirsRaw] = useState<Set<string>>(() => _collapsedCache.get(session.id) ?? new Set());
@@ -218,17 +375,18 @@ export default function FolderCompareView({ session }: Props) {
       if (!lp || !rp) return;
       setLoading(true);
       setError(null);
+      setProgress({ processed: 0, done: false });
       log("FolderCompare", `Starting comparison: ${lp} vs ${rp}`);
       try {
-        const patterns = excludeInput
+        const localPatterns = excludeInput
           .split(/[,;]/)
           .map((p) => p.trim())
           .filter(Boolean);
-        log("FolderCompare", `Exclude patterns (client-side only): [${patterns.join(", ")}]`);
-        updateSession(session.id, { leftPath: lp, rightPath: rp, excludePatterns: patterns } as any);
-        // Always scan everything; exclude patterns are applied client-side so they can be
-        // toggled instantly without re-running a full backend compare.
-        const res = await window.electronAPI.compareFolder(lp, rp, []);
+        // Merge global + local patterns, deduplicate
+        const allPatterns = Array.from(new Set([...getGlobalIgnorePatterns(), ...localPatterns]));
+        log("FolderCompare", `Backend exclude patterns: [${allPatterns.join(", ")}]`);
+        updateSession(session.id, { leftPath: lp, rightPath: rp, excludePatterns: localPatterns } as any);
+        const res = await window.electronAPI.compareFolder(lp, rp, allPatterns);
         log(
           "FolderCompare",
           `Compare complete: ${res.stats.total} items (${res.stats.equal} equal, ${res.stats.modified} modified, ${res.stats.onlyLeft} left-only, ${res.stats.onlyRight} right-only)`,
@@ -243,10 +401,33 @@ export default function FolderCompareView({ session }: Props) {
         setError(msg);
       } finally {
         setLoading(false);
+        setProgress(null);
       }
     },
     [leftPath, rightPath, excludeInput, session.id],
   );
+
+  // Subscribe to streaming progress events from the backend
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.onFolderCompareProgress((data) => {
+      setProgress({ processed: data.processed, done: data.done ?? false });
+    });
+    return unsubscribe;
+  }, []);
+
+  // Re-compare when global ignore patterns change (skip initial mount via ref)
+  const globalIgnoreInitialRef = useRef(true);
+  useEffect(() => {
+    if (globalIgnoreInitialRef.current) {
+      globalIgnoreInitialRef.current = false;
+      return;
+    }
+    if (leftPath && rightPath) {
+      log("FolderCompare", `Global ignore patterns changed — triggering re-compare`);
+      doCompare();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalIgnorePatterns]);
 
   useEffect(() => {
     if (session.leftPath && session.rightPath) {
@@ -566,7 +747,7 @@ export default function FolderCompareView({ session }: Props) {
         <input
           type="text"
           className="fc-exclude-input"
-          placeholder="Exclude: *.log, node_modules"
+          placeholder="Exclude: *.log, tests"
           value={excludeInput}
           onChange={(e) => {
             setExcludeInput(e.target.value);
@@ -575,8 +756,16 @@ export default function FolderCompareView({ session }: Props) {
           onKeyDown={(e) => {
             if (e.key === "Enter") doCompare();
           }}
-          data-tooltip="Exclude patterns (comma or semicolon separated), e.g. .git, node_modules"
+          data-tooltip="Local exclude patterns (comma or semicolon separated). Press Enter to apply."
         />
+        <button
+          className={`icon-btn fc-ignore-preset-btn${globalIgnorePatterns.length > 0 ? " fc-ignore-preset-btn--active" : ""}`}
+          onClick={() => setShowIgnoreModal(true)}
+          data-tooltip={`Global ignore patterns (${globalIgnorePatterns.length} active). Click to configure.`}
+          title="Configure global ignore patterns"
+        >
+          ⊘
+        </button>
         {filteredStats && (
           <span className="fc-stats">
             {filteredStats.modified} diff · {filteredStats.onlyLeft + filteredStats.onlyRight} orphan · {filteredStats.equal} equal
@@ -621,8 +810,14 @@ export default function FolderCompareView({ session }: Props) {
           if (scrollRef.current) _scrollCache.set(session.id, scrollRef.current.scrollTop);
         }}
       >
-        {loading && <div className="fc-loading">Comparing...</div>}
-        {error && <div className="fc-error">{error}</div>}
+        {loading && (
+          <div className="fc-loading">
+            {progress && !progress.done && progress.processed > 0
+              ? `Scanning… ${progress.processed.toLocaleString()} files processed`
+              : "Comparing…"}
+          </div>
+        )}
+        {!loading && error && <div className="fc-error">{error}</div>}
         {!loading && !error && !result && <div className="fc-placeholder">Enter left and right paths, then click Compare ▶</div>}
         {!loading && result && visibleItems && (
           <div className="fc-result-table">
@@ -754,6 +949,30 @@ export default function FolderCompareView({ session }: Props) {
           </div>
         )}
       </div>
+
+      {/* Progress footer — visible while comparison is running */}
+      {loading && (
+        <div className="fc-progress-footer">
+          <div className="fc-progress-track">
+            <div className="fc-progress-bar-fill fc-progress-bar-fill--scanning" />
+          </div>
+          <div className="fc-progress-stats">
+            <span className="fc-progress-icon">⏳</span>
+            <span>Scanning</span>
+            {progress && progress.processed > 0 && (
+              <>
+                <span className="fc-progress-sep">·</span>
+                <span className="fc-progress-count">
+                  <strong>{progress.processed.toLocaleString()}</strong> files processed
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Global ignore patterns modal */}
+      {showIgnoreModal && <PresetIgnoreModal onClose={() => setShowIgnoreModal(false)} />}
     </div>
   );
 }

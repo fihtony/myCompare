@@ -29,6 +29,11 @@ const api: ElectronAPI = {
   },
   closeAboutDialog: () => ipcRenderer.send("close-about-dialog"),
   notifyThemeChanged: (theme: "dark" | "light") => ipcRenderer.send("theme-changed", theme),
+  onFolderCompareProgress: (callback: (data: { processed: number; done?: boolean }) => void) => {
+    const handler = (_event: any, data: { processed: number; done?: boolean }) => callback(data);
+    ipcRenderer.on(IPC_CHANNELS.FOLDER_COMPARE_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.FOLDER_COMPARE_PROGRESS, handler);
+  },
   getPathForFile: (file: File): string => webUtils.getPathForFile(file),
 };
 

@@ -20,6 +20,7 @@ export const IPC_CHANNELS = {
   DROP_FILES: "drop:files",
   FILE_READ_LINES: "file:read-lines",
   DIALOG_SAVE_FILE: "dialog:save-file",
+  FOLDER_COMPARE_PROGRESS: "folder:compare:progress",
 } as const;
 
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
