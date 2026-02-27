@@ -9,13 +9,27 @@ A modern file, folder, and Git comparison tool for macOS — built with Electron
 
 ## Features
 
-**File Compare:** Side-by-side text diff with syntax highlighting (30+ languages), whitespace-only diff detection, hex viewer for binary files.
+### File Compare
 
-**Folder Compare:** Visual state indicators (equal, modified, only-left, only-right), directory state aggregation, fixed-width metadata columns, drag-and-drop support.
+Side-by-side text diff with syntax highlighting (30+ languages), whitespace-only diff detection, hex viewer for binary files.
 
-**Git Compare:** Tree view of changes between any two refs (branches, tags, commits).
+![File Compare](images/FileCompare.png)
 
-**General:** Multi-tab persistent sessions, dark/light theme, macOS native title bar.
+### Folder Compare
+
+Visual state indicators (equal, modified, only-left, only-right), directory state aggregation, fixed-width metadata columns, drag-and-drop support.
+
+![Folder Compare](images/FolderCompare.png)
+
+### Git Compare
+
+Tree view of changes between any two refs (branches, tags, commits).
+
+![Git Compare](images/GitVersionCompare.png)
+
+### General
+
+Multi-tab persistent sessions, dark/light theme, macOS native title bar.
 
 ---
 
