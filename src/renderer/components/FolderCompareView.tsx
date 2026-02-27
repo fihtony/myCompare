@@ -51,7 +51,8 @@ const PREDEFINED_IGNORES: { pattern: string; label: string; category: string }[]
   { pattern: ".terraform", label: ".terraform", category: "Infrastructure" },
 ];
 
-const DEFAULT_ACTIVE_IGNORES = [".git", "node_modules"];
+// Default to all predefined patterns
+const DEFAULT_ACTIVE_IGNORES = PREDEFINED_IGNORES.map((p) => p.pattern);
 
 function loadGlobalIgnores(): string[] {
   try {
@@ -273,14 +274,25 @@ function isAncestorHidden(relativePath: string): boolean {
  * - Mixed / any modified → "modified"
  */
 function computeDirState(dirRelPath: string, allItems: CompareItem[]): CompareState {
+  // Check if the directory itself exists (in the items list)
+  const dirItem = allItems.find((it) => it.relativePath === dirRelPath);
+
   const prefix = dirRelPath + "/";
-  const descendants = allItems.filter((it) => it.type === "file" && (it.relativePath === dirRelPath || it.relativePath.startsWith(prefix)));
+  const descendants = allItems.filter((it) => it.type === "file" && it.relativePath.startsWith(prefix));
   if (descendants.length === 0) return CompareState.EQUAL;
   const states = new Set(descendants.map((d) => d.state));
   if (states.size === 1 && states.has(CompareState.EQUAL)) return CompareState.EQUAL;
   const hasLeft = states.has(CompareState.ONLY_LEFT);
   const hasRight = states.has(CompareState.ONLY_RIGHT);
   const hasMod = states.has(CompareState.MODIFIED) || states.has(CompareState.BINARY_DIFFER) || states.has(CompareState.WHITESPACE);
+
+  // If the folder itself exists on both sides (not orphaned) and has orphan descendants, mark as MODIFIED
+  // This ensures folders with mismatched children show ≠ instead of a colored arrow
+  if (dirItem && dirItem.state !== "only-left" && dirItem.state !== "only-right" && (hasLeft || hasRight)) {
+    return CompareState.MODIFIED;
+  }
+
+  if (hasLeft && hasRight) return CompareState.MODIFIED;
   if (!hasMod && hasLeft && !hasRight) return CompareState.ONLY_LEFT;
   if (!hasMod && !hasLeft && hasRight) return CompareState.ONLY_RIGHT;
   return CompareState.MODIFIED;
@@ -903,7 +915,7 @@ export default function FolderCompareView({ session }: Props) {
                     </span>
 
                     {/* Center comparison icon — blank for orphan rows (no arrow needed) */}
-                    <span className="fc-col-cmp" style={{ color: stateColors[displayState] }}>
+                    <span className="fc-col-cmp" style={isOrphan ? {} : { color: stateColors[displayState] }}>
                       {isOrphan ? "" : stateIcons[displayState] || "?"}
                     </span>
 
