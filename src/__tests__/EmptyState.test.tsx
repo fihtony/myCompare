@@ -18,7 +18,7 @@ describe("EmptyState", () => {
   it("renders welcome message when not dragging", () => {
     vi.mocked(useDropZoneModule.useDraggingState).mockReturnValue(false);
     render(<EmptyState />);
-    expect(screen.getByText(/macompare/i)).toBeInTheDocument();
+    expect(screen.getByText(/mycompare/i)).toBeInTheDocument();
   });
 
   it("shows drag overlay when isDragging is true", () => {

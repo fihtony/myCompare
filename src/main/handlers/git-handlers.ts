@@ -7,7 +7,7 @@ import * as path from "path";
 import * as os from "os";
 
 function getTempDir(): string {
-  const dir = path.join(os.tmpdir(), "macompare-git");
+  const dir = path.join(os.tmpdir(), "mycompare-git");
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }

@@ -156,7 +156,7 @@ function showAboutDialog(theme: "dark" | "light" = currentTheme): void {
         <button class="close-btn" id="closeBtn" title="Close">✕</button>
       </div>
       <div class="container">
-        <div class="title">MaCompare</div>
+        <div class="title">myCompare</div>
         <div class="description">
           A modern file, folder, and Git<br>comparison tool for macOS.
         </div>
@@ -233,10 +233,10 @@ app.on("open-file", (event, filePath) => {
 function createMenuTemplate(): MenuItemConstructorOptions[] {
   return [
     {
-      label: "MaCompare",
+      label: "myCompare",
       submenu: [
         {
-          label: "About MaCompare",
+          label: "About myCompare",
           click: () => {
             showAboutDialog(currentTheme);
           },
@@ -282,7 +282,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: "MaCompare",
+    title: "myCompare",
     icon: iconPath || undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -333,7 +333,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   initFileLogger();
-  logFile("Main", "====== MaCompare starting ======");
+  logFile("Main", "====== myCompare starting ======");
   logFile("Main", `Environment: ${!app.isPackaged ? "development" : "production"}`);
   logFile("Main", "Registering IPC handlers...");
 

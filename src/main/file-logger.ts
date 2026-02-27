@@ -2,7 +2,7 @@
  * File-based logger for the main process.
  * Writes logs to:
  * - Development: <project-root>/logs/[date].log
- * - Production: ~/Library/Application Support/MaCompare/logs/[date].log (macOS)
+ * - Production: ~/Library/Application Support/myCompare/logs/[date].log (macOS)
  */
 import * as fs from "fs";
 import * as path from "path";

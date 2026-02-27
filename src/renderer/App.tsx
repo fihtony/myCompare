@@ -61,7 +61,7 @@ export default function App() {
   return (
     <div className="app-container">
       <div className="app-titlebar drag-region">
-        <span className="app-title no-drag">MaCompare</span>
+        <span className="app-title no-drag">myCompare</span>
         <button
           className="icon-btn app-theme-btn no-drag"
           onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}

@@ -1,4 +1,4 @@
-# MaCompare
+# myCompare
 
 A modern file, folder, and Git comparison tool for macOS — built with Electron, React, and TypeScript.
 
@@ -30,8 +30,8 @@ A modern file, folder, and Git comparison tool for macOS — built with Electron
 ### Install
 
 ```bash
-git clone https://github.com/fihtony/maCompare.git
-cd maCompare
+git clone https://github.com/fihtony/myCompare.git
+cd myCompare
 npm install
 ```
 

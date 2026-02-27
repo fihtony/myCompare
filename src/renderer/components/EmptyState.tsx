@@ -16,7 +16,7 @@ export default function EmptyState() {
       ) : (
         <>
           <div className="empty-icon">⇆</div>
-          <h2>Welcome to MaCompare</h2>
+          <h2>Welcome to myCompare</h2>
           <p>Drop two files or two folders here to start comparing</p>
           <p className="empty-hint">
             Or click <strong>+</strong> in the tab bar to create a new session
