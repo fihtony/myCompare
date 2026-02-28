@@ -80,6 +80,90 @@
   overflow: hidden;
 }
 
+/* ─── Split-pane layout ──────────────────────────────────── */
+.fd-split-wrapper {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.fd-left-pane {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+}
+
+.fd-left-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Center pane: holds copy buttons, scrolls vertically in sync, no X scroll */
+.fd-center-pane {
+  flex-shrink: 0;
+  overflow-y: scroll;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+.fd-center-pane::-webkit-scrollbar {
+  display: none; /* Chrome/Electron */
+}
+
+/* Center rows must match the line-height of the diff tables */
+.fd-center-row {
+  display: flex;
+  align-items: stretch; /* stretch so fd-copy-col fills full row height */
+  min-height: 20px;
+}
+
+.fd-right-pane {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+}
+
+.fd-right-table {
+  width: max-content;
+  min-width: 100%;
+}
+
+/* Hide right pane's vertical scrollbar only (keep horizontal) */
+.fd-right-pane::-webkit-scrollbar {
+  width: 0; /* Hides vertical scrollbar */
+  height: 8px; /* Keeps horizontal scrollbar */
+}
+.fd-right-pane::-webkit-scrollbar-thumb:horizontal {
+  background: rgba(128, 128, 128, 0.5);
+  border-radius: 4px;
+}
+.fd-right-pane::-webkit-scrollbar-track:horizontal {
+  background: transparent;
+}
+
+/* In split layout: added lines have no left content → no background on left rows */
+.fd-left-table .fd-diff-added {
+  background: transparent;
+}
+/* In split layout: removed lines have no right content → no background on right rows */
+.fd-right-table .fd-diff-removed {
+  background: transparent;
+}
+
+/* fd-selecting-left/right on the split wrapper hides opposite-side text selection */
+.fd-split-wrapper.fd-selecting-left .fd-line-right,
+.fd-split-wrapper.fd-selecting-right .fd-line-left {
+  user-select: none !important;
+}
+.fd-split-wrapper.fd-selecting-left .fd-line-right::selection,
+.fd-split-wrapper.fd-selecting-left .fd-line-right *::selection {
+  background-color: transparent;
+}
+.fd-split-wrapper.fd-selecting-right .fd-line-left::selection,
+.fd-split-wrapper.fd-selecting-right .fd-line-left *::selection {
+  background-color: transparent;
+}
+
 .fd-thumbnail {
   width: 12px;
   display: flex;
@@ -97,39 +181,17 @@
   cursor: pointer;
 }
 
-.fd-diff-scroll {
-  flex: 1;
-  overflow: auto;
-}
-
+/* fd-diff-table: shared base style for left-table and right-table */
 .fd-diff-table {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   line-height: 20px;
-  min-width: 100%;
-  user-select: none;
+  /* NOTE: do NOT put user-select:none here — Chrome/Electron does not allow
+     children to override a parent's user-select:none, which would block all
+     mouse text selection. Each non-text structural element has its own rule. */
 }
 
-/* When a drag starts on one column, disable selection in the other so the
-   browser selection stays within the intended side. */
-.fd-diff-table.fd-selecting-left .fd-line-right,
-.fd-diff-table.fd-selecting-right .fd-line-left {
-  user-select: none !important;
-}
-
-/* Chromium still visually highlights user-select:none nodes that fall within
-   the selection range. Use a transparent ::selection background to hide it. */
-.fd-diff-table.fd-selecting-left .fd-line-right::selection,
-.fd-diff-table.fd-selecting-left .fd-line-right *::selection {
-  background-color: transparent;
-}
-.fd-diff-table.fd-selecting-right .fd-line-left::selection,
-.fd-diff-table.fd-selecting-right .fd-line-left *::selection {
-  background-color: transparent;
-}
-
-/* Also suppress visual selection on structural elements (line numbers, copy
-   buttons, gutter) that are never targeted by text selection. */
+/* Also suppress visual selection on structural elements */
 .fd-diff-table .fd-line-no::selection,
 .fd-diff-table .fd-copy-col::selection,
 .fd-diff-table .fd-copy-col *::selection,
@@ -190,8 +252,14 @@
   user-select: none;
 }
 
+.fd-center-table {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 20px;
+}
+
 .fd-line-left {
-  border-right: 1px solid var(--border-color);
+  /* No right border — visual separation comes from pane boundaries */
 }
 
 .fd-gutter {

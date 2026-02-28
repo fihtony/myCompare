@@ -251,6 +251,23 @@ function createMenuTemplate(): MenuItemConstructorOptions[] {
         },
       ],
     },
+    {
+      // Edit menu is REQUIRED on macOS so that Cmd+C / Cmd+V / Cmd+Z etc.
+      // are routed through the app menu and dispatched to the renderer process.
+      // Without this, clipboard shortcuts are silently swallowed by macOS.
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" as const },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "pasteAndMatchStyle" },
+        { role: "delete" },
+        { role: "selectAll" },
+      ],
+    },
   ];
 }
 
